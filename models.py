@@ -9,6 +9,7 @@ class User(Base):
     __tablename__ = 'users'
     id = Column(BigInteger, primary_key=True, autoincrement=False)
     username = Column(String, nullable=True)
+    display_name = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     
     # Cascade delete ensures that deleting a user removes all their bets

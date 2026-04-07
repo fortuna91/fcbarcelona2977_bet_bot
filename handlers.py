@@ -29,16 +29,24 @@ SCORE_REGEX = r"(\d+)\s*[:\-\s]\s*(\d+)"
 @router.message(CommandStart())
 async def start_cmd(message: types.Message):
     logger.info(f"User {message.from_user.id} started the bot.")
+    full_name = message.from_user.full_name
     async with AsyncSessionLocal() as session:
         user = await session.get(User, message.from_user.id)
         if not user:
-            user = User(id=message.from_user.id, username=message.from_user.username)
+            user = User(
+                id=message.from_user.id, 
+                username=message.from_user.username,
+                display_name=full_name
+            )
             session.add(user)
             await session.commit()
-            logger.info(f"New user registered: {message.from_user.id} (@{message.from_user.username})")
-            await message.answer("🔵🔴 Добро пожаловать в FC Barcelona Bet Bot! Вы зарегистрированы. Используйте /help для просмотра команд.")
+            logger.info(f"New user registered: {message.from_user.id} ({full_name})")
+            await message.answer(f"🔵🔴 Добро пожаловать, {full_name}, в FC Barcelona Bet Bot! Вы зарегистрированы. Используйте /help для просмотра команд.")
         else:
-            await message.answer("С возвращением! Готовы к следующей игре?")
+            # Update name if changed
+            user.display_name = full_name
+            await session.commit()
+            await message.answer(f"С возвращением, {full_name}! Готовы к следующей игре?")
 
 
 @router.message(Command("help"))
@@ -183,7 +191,7 @@ async def my_bets(message: types.Message):
 async def leaderboard(message: types.Message):
     logger.info(f"User {message.from_user.id} requested the leaderboard.")
     async with AsyncSessionLocal() as session:
-        stmt = select(User.username, User.id, func.sum(Bet.points_earned).label("total")).join(Bet).group_by(User.id).order_by(desc("total"))
+        stmt = select(User.display_name, User.username, User.id, func.sum(Bet.points_earned).label("total")).join(Bet).group_by(User.id).order_by(desc("total"))
         rankings = (await session.execute(stmt)).all()
         
         response = "🏆 **Таблица лидеров** 🏆\n\n"
@@ -192,7 +200,7 @@ async def leaderboard(message: types.Message):
         for idx, row in enumerate(rankings, 1):
             if row.id == message.from_user.id:
                 user_rank, user_points = idx, row.total
-            name = f"@{row.username}" if row.username else f"Пользователь {row.id}"
+            name = row.display_name or (f"@{row.username}" if row.username else f"User {row.id}")
             response += f"{idx}. {name} — {row.total} очк.\n"
             
         header = f"🎖 Вы сейчас на **{user_rank} месте** с **{user_points} очками**!\n\n" if user_rank else ""
