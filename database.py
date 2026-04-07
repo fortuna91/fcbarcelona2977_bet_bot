@@ -1,7 +1,7 @@
 import os
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 import logging
-# ... other imports
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from models import Base
 from dotenv import load_dotenv
 
 load_dotenv()
