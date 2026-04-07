@@ -15,9 +15,6 @@ router = Router()
 ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
 logger = logging.getLogger(__name__)
 
-GAMES_CACHE_FILE = "games_cache.json"
-
-
 @router.message(CommandStart())
 async def start_cmd(message: types.Message):
     logger.info(f"User {message.from_user.id} started the bot.")
@@ -51,55 +48,28 @@ async def help_cmd(message: types.Message):
 async def games_cmd(message: types.Message):
     logger.info(f"User {message.from_user.id} requested upcoming games.")
     now = datetime.datetime.utcnow()
-    relevant_games = []
 
-    # 1. Try to read from local JSON file
-    if os.path.exists(GAMES_CACHE_FILE):
-        try:
-            with open(GAMES_CACHE_FILE, "r", encoding="utf-8") as f:
-                cached_data = json.load(f)
-                # Filter for future games
-                for g in cached_data:
-                    g_time = datetime.datetime.fromisoformat(g['start_time'])
-                    if g_time > now:
-                        relevant_games.append(g)
-        except Exception as e:
-            logger.error(f"Error reading games cache: {e}")
+    async with AsyncSessionLocal() as session:
+        # Fetch the next 5 games directly from the database
+        stmt = select(Match).where(Match.start_time > now).order_by(Match.start_time.asc()).limit(5)
+        db_matches = (await session.execute(stmt)).scalars().all()
 
-    # 2. If less than 5 relevant games, refresh from database/API
-    if len(relevant_games) < 5:
-        logger.info("Less than 5 relevant games in cache. Refreshing...")
-        async with AsyncSessionLocal() as session:
-            stmt = select(Match).where(Match.start_time > now).order_by(Match.start_time.asc()).limit(5)
+        if not db_matches:
+            logger.info("No future matches found in DB. Forcing API sync...")
+            await sync_matches()
             db_matches = (await session.execute(stmt)).scalars().all()
-            
-            if len(db_matches) < 5:
-                logger.info("DB also insufficient. Forcing API sync...")
-                await sync_matches()
-                db_matches = (await session.execute(stmt)).scalars().all()
 
-            relevant_games = [
-                {
-                    "title": m.title,
-                    "start_time": m.start_time.isoformat(),
-                } for m in db_matches
-            ]
-            
-            # Update the JSON file
-            with open(GAMES_CACHE_FILE, "w", encoding="utf-8") as f:
-                json.dump(relevant_games, f, ensure_ascii=False, indent=4)
-
-    # 3. Show top 5 to user
-    if not relevant_games:
+    if not db_matches:
         return await message.answer("К сожалению, информации о ближайших матчах пока нет.")
 
     response = "📅 **Ближайшие 5 матчей Барселоны:**\n\n"
-    for g in relevant_games[:5]:
-        g_time = datetime.datetime.fromisoformat(g['start_time'])
-        date_str = g_time.strftime("%d.%m.%Y %H:%M")
-        response += f"⚽ {g['title']}\n⏰ {date_str} (UTC)\n\n"
+    for match_obj in db_matches:
+        # Format: Day.Month.Year Hour:Minute
+        date_str = match_obj.start_time.strftime("%d.%m.%Y %H:%M")
+        response += f"⚽ {match_obj.title}\n⏰ {date_str} (UTC)\n\n"
 
     await message.answer(response, parse_mode="Markdown")
+
 
 @router.message(Command("bet"))
 async def place_bet(message: types.Message, command: CommandObject):

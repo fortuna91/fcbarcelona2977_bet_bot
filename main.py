@@ -37,8 +37,8 @@ async def main():
     logger.info("Setting up Scheduler...")
     setup_scheduler(bot)
     
-    logger.info("Initial match synchronization...")
-    await sync_matches() 
+    #  logger.info("Initial match synchronization...")
+    # await sync_matches()
     
     logger.info("Bot is starting...")
     await dp.start_polling(bot)
