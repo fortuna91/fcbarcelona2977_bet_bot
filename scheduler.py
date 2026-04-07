@@ -11,37 +11,53 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
 
-
 async def sync_matches():
-    logger.info("Starting match synchronization...")
+    logger.info("Starting match synchronization (football-data.org)...")
     api = FootballAPI()
     try:
         data = await api.get_fixtures()
         logger.info(f"Fetched {len(data)} fixtures from API.")
         async with AsyncSessionLocal() as session:
             for item in data:
-                f = item['fixture']
-                dt_str = f['date'].replace('Z', '+00:00')
+                f_id = item['id']
+                # football-data.org date format: "2026-03-15T20:00:00Z"
+                dt_str = item['utcDate'].replace('Z', '+00:00')
                 dt = datetime.datetime.fromisoformat(dt_str).replace(tzinfo=None)
-                title = f"{item['teams']['home']['name']} vs {item['teams']['away']['name']}"
-                match = await session.get(Match, f['id'])
+                
+                home_name = item['homeTeam']['shortName'] or item['homeTeam']['name']
+                away_name = item['awayTeam']['shortName'] or item['awayTeam']['name']
+                title = f"{home_name} vs {away_name}"
+                
+                # football-data.org status: FINISHED, SCHEDULED, TIMED, IN_PLAY, PAUSED, POSTPONED, CANCELLED
+                # Map them to simplified statuses: FT or NS
+                raw_status = item['status']
+                status = 'FT' if raw_status == 'FINISHED' else 'NS'
+                
+                match = await session.get(Match, f_id)
                 if not match:
-                    session.add(Match(id=f['id'], title=title, start_time=dt, status=f['status']['short']))
+                    session.add(Match(id=f_id, title=title, start_time=dt, status=status))
                 else:
-                    match.status = f['status']['short']
+                    match.status = status
                     match.start_time = dt
+                    
+                # If finished, update actual scores too
+                if status == 'FT':
+                    match.actual_home_score = item['score']['fullTime']['home']
+                    match.actual_guest_score = item['score']['fullTime']['away']
+                    
             await session.commit()
             logger.info("Match synchronization completed successfully.")
     except Exception as e:
         logger.error(f"Error during match synchronization: {e}", exc_info=True)
-
 
 async def check_results_and_notify(bot: Bot):
     logger.info("Checking for finished matches and updating scores...")
     api = FootballAPI()
     async with AsyncSessionLocal() as session:
         now = datetime.datetime.utcnow()
-        stmt = select(Match).where(Match.status != 'FT', Match.start_time < now)
+        # Find matches that are not 'FT' but should have finished by now (e.g., 2.5 hours after start)
+        cutoff = now - datetime.timedelta(hours=2, minutes=30)
+        stmt = select(Match).where(Match.status != 'FT', Match.start_time < cutoff)
         pending = (await session.execute(stmt)).scalars().all()
 
         if not pending:
@@ -51,8 +67,10 @@ async def check_results_and_notify(bot: Bot):
         for match in pending:
             logger.info(f"Checking status for match: {match.title} (ID: {match.id})")
             data = await api.get_fixture_by_id(match.id)
-            if data and data['fixture']['status']['short'] == 'FT':
-                ah, ag = data['goals']['home'], data['goals']['away']
+            
+            if data and data['status'] == 'FINISHED':
+                ah = data['score']['fullTime']['home']
+                ag = data['score']['fullTime']['away']
                 logger.info(f"Match {match.id} finished. Score: {ah}-{ag}")
                 match.actual_home_score, match.actual_guest_score, match.status = ah, ag, 'FT'
                 
@@ -73,7 +91,6 @@ async def check_results_and_notify(bot: Bot):
                     except Exception as e:
                         logger.warning(f"Failed to send notification to user {bet.user_id}: {e}")
         await session.commit()
-
 
 async def daily_match_reminder(bot: Bot):
     """Sends a reminder at 8 AM if there is a match today."""
@@ -113,7 +130,6 @@ async def hourly_bet_reminder(bot: Bot):
                     await bot.send_message(user.id, f"⏰ **Последний шанс!**\nБарселона начинает через час против *{match.title}*.\nВы еще не сделали ставку! Используйте /bet прямо сейчас.")
                 except Exception as e:
                     logger.debug(f"Could not send hourly reminder to {user.id}: {e}")
-
 
 def setup_scheduler(bot: Bot):
     logger.info("Configuring scheduler jobs...")

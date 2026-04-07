@@ -1,6 +1,5 @@
 import os
 import httpx
-import datetime
 import logging
 from dotenv import load_dotenv
 
@@ -9,67 +8,50 @@ logger = logging.getLogger(__name__)
 
 class FootballAPI:
     def __init__(self):
+        # We use the same env variable name but now it expects a football-data.org token
         self.api_key = os.getenv("FOOTBALL_API_KEY")
-        self.base_url = "https://v3.football.api-sports.io"
+        self.base_url = "https://api.football-data.org/v4"
         self.headers = {
-            "x-apisports-key": self.api_key
+            "X-Auth-Token": self.api_key
         }
-        self.team_id = 529 # FC Barcelona
+        self.team_id = 86 # FC Barcelona ID in football-data.org
 
-    async def get_fixtures(self, season: int = None):
-        """Fetch all FC Barcelona fixtures for the season. Dynamically calculate if not provided."""
-        if season is None:
-            now = datetime.datetime.utcnow()
-            # If we are before August (Month 8), the 'season' is usually the previous year
-            # (e.g., in April 2026, we are in the 2025/2026 season, labeled '2025')
-            if now.month < 8:
-                season = now.year - 1
-            else:
-                season = now.year
-                
-        url = f"{self.base_url}/fixtures"
-        params = {"team": self.team_id, "season": season}
+    async def get_fixtures(self):
+        """Fetch all FC Barcelona matches for the current season."""
+        url = f"{self.base_url}/teams/{self.team_id}/matches"
         
-        logger.info(f"Requesting fixtures for team {self.team_id}, season {season}...")
+        logger.info(f"Requesting matches for team {self.team_id} from football-data.org...")
         async with httpx.AsyncClient() as client:
             try:
-                response = await client.get(url, headers=self.headers, params=params)
+                response = await client.get(url, headers=self.headers)
                 response.raise_for_status()
                 data = response.json()
                 
-                # Log API errors or warnings if they exist in the response
-                if data.get('errors'):
-                    logger.error(f"API Errors: {data.get('errors')}")
-                
-                results = data.get('response', [])
-                logger.info(f"Successfully fetched {len(results)} fixtures.")
-                
-                if len(results) == 0:
-                    logger.warning(f"Full API Response for debugging: {data}")
-                    
+                results = data.get('matches', [])
+                logger.info(f"Successfully fetched {len(results)} matches.")
                 return results
             except Exception as e:
-                logger.error(f"Failed to fetch fixtures: {e}")
+                logger.error(f"Failed to fetch matches: {e}")
+                if hasattr(e, 'response') and e.response:
+                    logger.error(f"Response: {e.response.text}")
                 return []
 
     async def get_fixture_by_id(self, fixture_id: int):
         """Fetch details for a specific match to check the score."""
-        url = f"{self.base_url}/fixtures"
-        params = {"id": fixture_id}
+        url = f"{self.base_url}/matches/{fixture_id}"
         
-        logger.info(f"Requesting details for fixture ID: {fixture_id}...")
+        logger.info(f"Requesting details for match ID: {fixture_id}...")
         async with httpx.AsyncClient() as client:
             try:
-                response = await client.get(url, headers=self.headers, params=params)
+                response = await client.get(url, headers=self.headers)
                 response.raise_for_status()
                 data = response.json()
-                res = data.get('response', [])
-                if res:
-                    logger.info(f"Successfully fetched details for fixture {fixture_id}.")
-                    return res[0]
+                if data:
+                    logger.info(f"Successfully fetched details for match {fixture_id}.")
+                    return data
                 else:
-                    logger.warning(f"No data found for fixture {fixture_id}.")
+                    logger.warning(f"No data found for match {fixture_id}.")
                     return None
             except Exception as e:
-                logger.error(f"Failed to fetch fixture {fixture_id}: {e}")
+                logger.error(f"Failed to fetch match {fixture_id}: {e}")
                 return None
