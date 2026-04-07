@@ -114,7 +114,7 @@ async def hourly_bet_reminder(bot: Bot):
 def setup_scheduler(bot: Bot):
     logger.info("Configuring scheduler jobs...")
     scheduler.add_job(sync_matches, 'cron', hour=2)
-    scheduler.add_job(check_results_and_notify, 'interval', minutes=30)
+    scheduler.add_job(check_results_and_notify, 'interval', minutes=30, args=[bot])
     scheduler.add_job(daily_match_reminder, 'cron', hour=8, args=[bot])
     scheduler.add_job(hourly_bet_reminder, 'interval', minutes=10, args=[bot])
     scheduler.start()
