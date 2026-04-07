@@ -9,8 +9,6 @@ services:
       - bot_data:/app/data
     env_file:
       - .env
-    environment:
-      - DATABASE_URL=sqlite+aiosqlite:////app/data/bot.db
     restart: always
 
 volumes:
