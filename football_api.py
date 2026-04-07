@@ -16,8 +16,17 @@ class FootballAPI:
         }
         self.team_id = 529 # FC Barcelona
 
-    async def get_fixtures(self, season: int = 2025):
-        """Fetch all FC Barcelona fixtures for the season."""
+    async def get_fixtures(self, season: int = None):
+        """Fetch all FC Barcelona fixtures for the season. Dynamically calculate if not provided."""
+        if season is None:
+            now = datetime.datetime.utcnow()
+            # If we are before August (Month 8), the 'season' is usually the previous year
+            # (e.g., in April 2026, we are in the 2025/2026 season, labeled '2025')
+            if now.month < 8:
+                season = now.year - 1
+            else:
+                season = now.year
+                
         url = f"{self.base_url}/fixtures"
         params = {"team": self.team_id, "season": season}
         

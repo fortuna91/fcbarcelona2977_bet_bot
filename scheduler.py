@@ -35,6 +35,7 @@ async def sync_matches():
     except Exception as e:
         logger.error(f"Error during match synchronization: {e}", exc_info=True)
 
+
 async def check_results_and_notify(bot: Bot):
     logger.info("Checking for finished matches and updating scores...")
     api = FootballAPI()
@@ -72,6 +73,7 @@ async def check_results_and_notify(bot: Bot):
                     except Exception as e:
                         logger.warning(f"Failed to send notification to user {bet.user_id}: {e}")
         await session.commit()
+
 
 async def daily_match_reminder(bot: Bot):
     """Sends a reminder at 8 AM if there is a match today."""
@@ -111,6 +113,7 @@ async def hourly_bet_reminder(bot: Bot):
                     await bot.send_message(user.id, f"⏰ **Последний шанс!**\nБарселона начинает через час против *{match.title}*.\nВы еще не сделали ставку! Используйте /bet прямо сейчас.")
                 except Exception as e:
                     logger.debug(f"Could not send hourly reminder to {user.id}: {e}")
+
 
 def setup_scheduler(bot: Bot):
     logger.info("Configuring scheduler jobs...")
