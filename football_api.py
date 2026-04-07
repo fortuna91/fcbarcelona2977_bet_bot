@@ -36,8 +36,17 @@ class FootballAPI:
                 response = await client.get(url, headers=self.headers, params=params)
                 response.raise_for_status()
                 data = response.json()
+                
+                # Log API errors or warnings if they exist in the response
+                if data.get('errors'):
+                    logger.error(f"API Errors: {data.get('errors')}")
+                
                 results = data.get('response', [])
                 logger.info(f"Successfully fetched {len(results)} fixtures.")
+                
+                if len(results) == 0:
+                    logger.warning(f"Full API Response for debugging: {data}")
+                    
                 return results
             except Exception as e:
                 logger.error(f"Failed to fetch fixtures: {e}")
