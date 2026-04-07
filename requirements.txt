@@ -1,0 +1,6 @@
+aiogram
+sqlalchemy[asyncio]
+aiosqlite
+apscheduler
+httpx
+python-dotenv
