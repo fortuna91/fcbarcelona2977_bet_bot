@@ -14,7 +14,7 @@ class FootballAPI:
         self.headers = {
             "X-Auth-Token": self.api_key
         }
-        self.team_id = 86 # FC Barcelona ID in football-data.org
+        self.team_id = 81 # FC Barcelona ID in football-data.org
 
     async def get_fixtures(self):
         """Fetch all FC Barcelona matches for the current season."""
