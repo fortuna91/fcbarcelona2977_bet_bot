@@ -1,6 +1,7 @@
 aiogram
 sqlalchemy[asyncio]
 aiosqlite
+asyncpg
 apscheduler
 httpx
 python-dotenv

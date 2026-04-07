@@ -11,6 +11,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
 
+
 async def sync_matches():
     logger.info("Starting match synchronization...")
     api = FootballAPI()
@@ -67,7 +68,7 @@ async def check_results_and_notify(bot: Bot):
                     rank_stmt = select(func.count(User.id)).select_from(User).join(Bet).group_by(User.id).having(func.sum(Bet.points_earned) > total)
                     rank = len((await session.execute(rank_stmt)).all()) + 1
                     try:
-                        await bot.send_message(bet.user_id, f"🏁 Match Finished!\n{match.title}: {ah}-{ag}\nPoints: +{bet.points_earned}\nTotal: {total}\nRank: #{rank}")
+                        await bot.send_message(bet.user_id, f"🏁 Матч окончен!\n{match.title}: {ah}-{ag}\nОчки: +{bet.points_earned}\nВсего: {total}\nМесто в рейтинге: #{rank}")
                     except Exception as e:
                         logger.warning(f"Failed to send notification to user {bet.user_id}: {e}")
         await session.commit()
@@ -84,7 +85,7 @@ async def daily_match_reminder(bot: Bot):
             users = (await session.execute(select(User))).scalars().all()
             for user in users:
                 try:
-                    await bot.send_message(user.id, f"⚽ **Match Day!**\nFC Barcelona plays today: *{match.title}*.\nDon't forget to place your bet using /bet!")
+                    await bot.send_message(user.id, f"⚽ **День матча!**\nБарселона играет сегодня: *{match.title}*.\nНе забудьте сделать ставку с помощью /bet!")
                 except Exception as e:
                     logger.debug(f"Could not send daily reminder to {user.id}: {e}")
 
@@ -107,7 +108,7 @@ async def hourly_bet_reminder(bot: Bot):
             
             for user in users:
                 try:
-                    await bot.send_message(user.id, f"⏰ **Final Call!**\nBarcelona kicks off in 1 hour vs *{match.title}*.\nYou haven't placed a bet yet! Use /bet now.")
+                    await bot.send_message(user.id, f"⏰ **Последний шанс!**\nБарселона начинает через час против *{match.title}*.\nВы еще не сделали ставку! Используйте /bet прямо сейчас.")
                 except Exception as e:
                     logger.debug(f"Could not send hourly reminder to {user.id}: {e}")
 

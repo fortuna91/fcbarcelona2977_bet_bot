@@ -68,3 +68,6 @@ python main.py
 - **Asynchronous Code**: All I/O operations (database, API, Telegram) must be `async`.
 - **Database Migrations**: Currently uses `Base.metadata.create_all` on startup. For production, consider using Alembic.
 - **Timezones**: The bot uses UTC internally for all match times and schedules.
+
+## Localization
+- **Language**: All user-facing messages (commands, responses, notifications, and reminders) MUST be in **Russian**.

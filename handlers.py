@@ -2,16 +2,21 @@ import re
 import datetime
 import os
 import logging
+import json
 from aiogram import Router, F, types
 from aiogram.filters import CommandStart, Command, CommandObject
 from sqlalchemy import select, func, desc, delete
 from sqlalchemy.orm import selectinload
 from models import User, Match, Bet
 from database import AsyncSessionLocal
+from scheduler import sync_matches
 
 router = Router()
 ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
 logger = logging.getLogger(__name__)
+
+GAMES_CACHE_FILE = "games_cache.json"
+
 
 @router.message(CommandStart())
 async def start_cmd(message: types.Message):
@@ -23,43 +28,110 @@ async def start_cmd(message: types.Message):
             session.add(user)
             await session.commit()
             logger.info(f"New user registered: {message.from_user.id} (@{message.from_user.username})")
-            await message.answer("🔵🔴 Welcome to the FC Barcelona Bet Bot! You're registered. Use /help for commands.")
+            await message.answer("🔵🔴 Добро пожаловать в FC Barcelona Bet Bot! Вы зарегистрированы. Используйте /help для просмотра команд.")
         else:
-            await message.answer("Welcome back! Ready for the next game?")
+            await message.answer("С возвращением! Готовы к следующей игре?")
+
+@router.message(Command("help"))
+async def help_cmd(message: types.Message):
+    logger.info(f"User {message.from_user.id} requested help.")
+    help_text = (
+        "📖 **FC Barcelona Bet Bot - Команды**\n\n"
+        "🔵 `/bet H:G` — Сделать или обновить ставку на сегодняшний матч (например, `/bet 2:1`).\n"
+        "📅 `/games` — Посмотреть ближайшие 5 матчей Барселоны.\n"
+        "🔴 `/mybets` — Посмотреть историю ставок и очки.\n"
+        "🏆 `/leaderboard` — Посмотреть таблицу лидеров.\n"
+        "❌ `/deleteme` — Удалить аккаунт и всю историю.\n"
+        "❓ `/help` — Показать это сообщение.\n\n"
+        "⚽ *Примечание: Ставки принимаются только в дни матчей до начала игры!*"
+    )
+    await message.answer(help_text, parse_mode="Markdown")
+
+@router.message(Command("games"))
+async def games_cmd(message: types.Message):
+    logger.info(f"User {message.from_user.id} requested upcoming games.")
+    now = datetime.datetime.utcnow()
+    relevant_games = []
+
+    # 1. Try to read from local JSON file
+    if os.path.exists(GAMES_CACHE_FILE):
+        try:
+            with open(GAMES_CACHE_FILE, "r", encoding="utf-8") as f:
+                cached_data = json.load(f)
+                # Filter for future games
+                for g in cached_data:
+                    g_time = datetime.datetime.fromisoformat(g['start_time'])
+                    if g_time > now:
+                        relevant_games.append(g)
+        except Exception as e:
+            logger.error(f"Error reading games cache: {e}")
+
+    # 2. If less than 5 relevant games, refresh from database/API
+    if len(relevant_games) < 5:
+        logger.info("Less than 5 relevant games in cache. Refreshing...")
+        async with AsyncSessionLocal() as session:
+            stmt = select(Match).where(Match.start_time > now).order_by(Match.start_time.asc()).limit(5)
+            db_matches = (await session.execute(stmt)).scalars().all()
+            
+            if len(db_matches) < 5:
+                logger.info("DB also insufficient. Forcing API sync...")
+                await sync_matches()
+                db_matches = (await session.execute(stmt)).scalars().all()
+
+            relevant_games = [
+                {
+                    "title": m.title,
+                    "start_time": m.start_time.isoformat(),
+                } for m in db_matches
+            ]
+            
+            # Update the JSON file
+            with open(GAMES_CACHE_FILE, "w", encoding="utf-8") as f:
+                json.dump(relevant_games, f, ensure_ascii=False, indent=4)
+
+    # 3. Show top 5 to user
+    if not relevant_games:
+        return await message.answer("К сожалению, информации о ближайших матчах пока нет.")
+
+    response = "📅 **Ближайшие 5 матчей Барселоны:**\n\n"
+    for g in relevant_games[:5]:
+        g_time = datetime.datetime.fromisoformat(g['start_time'])
+        date_str = g_time.strftime("%d.%m.%Y %H:%M")
+        response += f"⚽ {g['title']}\n⏰ {date_str} (UTC)\n\n"
+
+    await message.answer(response, parse_mode="Markdown")
 
 @router.message(Command("bet"))
 async def place_bet(message: types.Message, command: CommandObject):
     logger.info(f"User {message.from_user.id} is attempting to place a bet with args: {command.args}")
     if not command.args:
-        return await message.answer("Usage: `/bet 2:1`", parse_mode="Markdown")
+        return await message.answer("Использование: `/bet 2:1`", parse_mode="Markdown")
 
     match_score = re.search(r"(\d+)[:\-](\d+)", command.args)
     if not match_score:
-        return await message.answer("❌ Invalid format. Use: `/bet 2:1`")
+        return await message.answer("❌ Неверный формат. Используйте: `/bet 2:1`")
     
     h_score, g_score = int(match_score.group(1)), int(match_score.group(2))
     now = datetime.datetime.utcnow()
 
     async with AsyncSessionLocal() as session:
-        # Match Day only: find the earliest match today that hasn't started
         stmt = select(Match).where(Match.status == 'NS', Match.start_time > now).order_by(Match.start_time.asc())
         next_match = (await session.execute(stmt)).scalars().first()
 
         if not next_match or next_match.start_time.date() != now.date():
             logger.warning(f"User {message.from_user.id} tried to bet, but no match is scheduled for today.")
-            return await message.answer("❌ No Barcelona matches today. Betting is only open on match days!")
+            return await message.answer("❌ Сегодня нет матчей Барселоны. Ставки открыты только в дни матчей!")
 
-        # Upsert bet
         stmt_bet = select(Bet).where(Bet.user_id == message.from_user.id, Bet.match_id == next_match.id)
         bet = (await session.execute(stmt_bet)).scalar_one_or_none()
         
         if bet:
             bet.bet_home_score, bet.bet_guest_score = h_score, g_score
-            text = f"✅ Bet updated for **{next_match.title}**: `{h_score}:{g_score}`."
+            text = f"✅ Ставка обновлена на матч **{next_match.title}**: `{h_score}:{g_score}`."
             logger.info(f"User {message.from_user.id} updated bet for match {next_match.id} to {h_score}:{g_score}.")
         else:
             session.add(Bet(user_id=message.from_user.id, match_id=next_match.id, bet_home_score=h_score, bet_guest_score=g_score))
-            text = f"✅ Bet placed for **{next_match.title}**: `{h_score}:{g_score}`!"
+            text = f"✅ Ставка принята на матч **{next_match.title}**: `{h_score}:{g_score}`!"
             logger.info(f"User {message.from_user.id} placed new bet for match {next_match.id}: {h_score}:{g_score}.")
             
         await session.commit()
@@ -73,13 +145,13 @@ async def my_bets(message: types.Message):
         bets = (await session.execute(stmt)).scalars().all()
         
         if not bets:
-            return await message.answer("You haven't placed any bets yet.")
+            return await message.answer("Вы еще не сделали ни одной ставки.")
             
-        response = "📊 **Your Betting History:**\n\n"
+        response = "📊 **Ваша история ставок:**\n\n"
         for bet in bets:
             m = bet.match
-            res = f"{m.actual_home_score}:{m.actual_guest_score}" if m.status == 'FT' else "TBD"
-            response += f"🔹 {m.title}\nBet: {bet.bet_home_score}:{bet.bet_guest_score} | Result: {res} | Points: {bet.points_earned}\n\n"
+            res = f"{m.actual_home_score}:{m.actual_guest_score}" if m.status == 'FT' else "Ожидается"
+            response += f"🔹 {m.title}\nСтавка: {bet.bet_home_score}:{bet.bet_guest_score} | Результат: {res} | Очки: {bet.points_earned}\n\n"
             
         await message.answer(response, parse_mode="Markdown")
 
@@ -90,16 +162,16 @@ async def leaderboard(message: types.Message):
         stmt = select(User.username, User.id, func.sum(Bet.points_earned).label("total")).join(Bet).group_by(User.id).order_by(desc("total"))
         rankings = (await session.execute(stmt)).all()
         
-        response = "🏆 **Leaderboard** 🏆\n\n"
+        response = "🏆 **Таблица лидеров** 🏆\n\n"
         user_rank, user_points = 0, 0
         
         for idx, row in enumerate(rankings, 1):
             if row.id == message.from_user.id:
                 user_rank, user_points = idx, row.total
-            name = f"@{row.username}" if row.username else f"User {row.id}"
-            response += f"{idx}. {name} — {row.total} pts\n"
+            name = f"@{row.username}" if row.username else f"Пользователь {row.id}"
+            response += f"{idx}. {name} — {row.total} очк.\n"
             
-        header = f"🎖 You are currently in **#{user_rank} place** with **{user_points} points**!\n\n" if user_rank else ""
+        header = f"🎖 Вы сейчас на **{user_rank} месте** с **{user_points} очками**!\n\n" if user_rank else ""
         await message.answer(header + response, parse_mode="Markdown")
 
 @router.message(Command("deleteme"))
@@ -111,18 +183,18 @@ async def delete_me(message: types.Message):
             await session.delete(user)
             await session.commit()
             logger.warning(f"User {message.from_user.id} has deleted their account.")
-            await message.answer("❌ Your account and all bet history have been deleted.")
+            await message.answer("❌ Ваш аккаунт и вся история ставок удалены.")
         else:
-            await message.answer("Account not found.")
+            await message.answer("Аккаунт не найден.")
 
 @router.message(Command("reset_all_scores"))
 async def reset_scores(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         logger.warning(f"User {message.from_user.id} attempted to reset all scores but is not an admin.")
-        return await message.answer("🚫 Admin only.")
+        return await message.answer("🚫 Только для администратора.")
     
     logger.warning(f"ADMIN {message.from_user.id} IS RESETTING ALL SCORES.")
     async with AsyncSessionLocal() as session:
         await session.execute(delete(Bet))
         await session.commit()
-        await message.answer("⚠️ All user scores have been reset.")
+        await message.answer("⚠️ Все очки пользователей сброшены.")
