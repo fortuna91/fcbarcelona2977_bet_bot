@@ -33,17 +33,18 @@ async def sync_matches():
                 raw_status = item['status']
                 status = 'FT' if raw_status == 'FINISHED' else 'NS'
                 
-                match = await session.get(Match, f_id)
-                if not match:
-                    session.add(Match(id=f_id, title=title, start_time=dt, status=status))
+                match_obj = await session.get(Match, f_id)
+                if not match_obj:
+                    match_obj = Match(id=f_id, title=title, start_time=dt, status=status)
+                    session.add(match_obj)
                 else:
-                    match.status = status
-                    match.start_time = dt
+                    match_obj.status = status
+                    match_obj.start_time = dt
                     
                 # If finished, update actual scores too
                 if status == 'FT':
-                    match.actual_home_score = item['score']['fullTime']['home']
-                    match.actual_guest_score = item['score']['fullTime']['away']
+                    match_obj.actual_home_score = item['score']['fullTime']['home']
+                    match_obj.actual_guest_score = item['score']['fullTime']['away']
                     
             await session.commit()
             logger.info("Match synchronization completed successfully.")
@@ -64,19 +65,19 @@ async def check_results_and_notify(bot: Bot):
             logger.info("No pending matches to check.")
             return
 
-        for match in pending:
-            logger.info(f"Checking status for match: {match.title} (ID: {match.id})")
-            data = await api.get_fixture_by_id(match.id)
+        for match_obj in pending:
+            logger.info(f"Checking status for match: {match_obj.title} (ID: {match_obj.id})")
+            data = await api.get_fixture_by_id(match_obj.id)
             
             if data and data['status'] == 'FINISHED':
                 ah = data['score']['fullTime']['home']
                 ag = data['score']['fullTime']['away']
-                logger.info(f"Match {match.id} finished. Score: {ah}-{ag}")
-                match.actual_home_score, match.actual_guest_score, match.status = ah, ag, 'FT'
+                logger.info(f"Match {match_obj.id} finished. Score: {ah}-{ag}")
+                match_obj.actual_home_score, match_obj.actual_guest_score, match_obj.status = ah, ag, 'FT'
                 
-                stmt_bets = select(Bet).where(Bet.match_id == match.id)
+                stmt_bets = select(Bet).where(Bet.match_id == match_obj.id)
                 bets = (await session.execute(stmt_bets)).scalars().all()
-                logger.info(f"Calculating points for {len(bets)} bets on match {match.id}.")
+                logger.info(f"Calculating points for {len(bets)} bets on match {match_obj.id}.")
                 
                 for bet in bets:
                     bet.points_earned = calculate_points(bet.bet_home_score, bet.bet_guest_score, ah, ag)
@@ -87,7 +88,7 @@ async def check_results_and_notify(bot: Bot):
                     rank_stmt = select(func.count(User.id)).select_from(User).join(Bet).group_by(User.id).having(func.sum(Bet.points_earned) > total)
                     rank = len((await session.execute(rank_stmt)).all()) + 1
                     try:
-                        await bot.send_message(bet.user_id, f"🏁 Матч окончен!\n{match.title}: {ah}-{ag}\nОчки: +{bet.points_earned}\nВсего: {total}\nМесто в рейтинге: #{rank}")
+                        await bot.send_message(bet.user_id, f"🏁 Матч окончен!\n{match_obj.title}: {ah}-{ag}\nОчки: +{bet.points_earned}\nВсего: {total}\nМесто в рейтинге: #{rank}")
                     except Exception as e:
                         logger.warning(f"Failed to send notification to user {bet.user_id}: {e}")
         await session.commit()
@@ -98,13 +99,13 @@ async def daily_match_reminder(bot: Bot):
     now = datetime.datetime.utcnow()
     async with AsyncSessionLocal() as session:
         stmt = select(Match).where(func.date(Match.start_time) == now.date())
-        match = (await session.execute(stmt)).scalars().first()
-        if match:
-            logger.info(f"Match found today: {match.title}. Sending reminders...")
+        match_obj = (await session.execute(stmt)).scalars().first()
+        if match_obj:
+            logger.info(f"Match found today: {match_obj.title}. Sending reminders...")
             users = (await session.execute(select(User))).scalars().all()
             for user in users:
                 try:
-                    await bot.send_message(user.id, f"⚽ **День матча!**\nБарселона играет сегодня: *{match.title}*.\nНе забудьте сделать ставку с помощью /bet!")
+                    await bot.send_message(user.id, f"⚽ **День матча!**\nБарселона играет сегодня: *{match_obj.title}*.\nНе забудьте сделать ставку с помощью /bet!")
                 except Exception as e:
                     logger.debug(f"Could not send daily reminder to {user.id}: {e}")
 
@@ -116,18 +117,18 @@ async def hourly_bet_reminder(bot: Bot):
     async with AsyncSessionLocal() as session:
         # Find matches starting in ~1 hour
         stmt = select(Match).where(Match.start_time > now, Match.start_time <= one_hour_later)
-        match = (await session.execute(stmt)).scalars().first()
+        match_obj = (await session.execute(stmt)).scalars().first()
         
-        if match:
-            logger.info(f"Kickoff in ~1 hour for: {match.title}. Identifying users who haven't bet.")
+        if match_obj:
+            logger.info(f"Kickoff in ~1 hour for: {match_obj.title}. Identifying users who haven't bet.")
             # Find users who haven't placed a bet for this match
-            subquery = select(Bet.user_id).where(Bet.match_id == match.id)
+            subquery = select(Bet.user_id).where(Bet.match_id == match_obj.id)
             stmt_users = select(User).where(User.id.not_in(subquery))
             users = (await session.execute(stmt_users)).scalars().all()
             
             for user in users:
                 try:
-                    await bot.send_message(user.id, f"⏰ **Последний шанс!**\nБарселона начинает через час против *{match.title}*.\nВы еще не сделали ставку! Используйте /bet прямо сейчас.")
+                    await bot.send_message(user.id, f"⏰ **Последний шанс!**\nБарселона начинает через час против *{match_obj.title}*.\nВы еще не сделали ставку! Используйте /bet прямо сейчас.")
                 except Exception as e:
                     logger.debug(f"Could not send hourly reminder to {user.id}: {e}")
 

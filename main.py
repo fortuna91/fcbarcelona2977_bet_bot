@@ -24,6 +24,7 @@ console_handler = logging.StreamHandler()
 console_handler.setFormatter(log_formatter)
 logger.addHandler(console_handler)
 
+
 async def main():
     logger.info("Initializing database...")
     await init_db()

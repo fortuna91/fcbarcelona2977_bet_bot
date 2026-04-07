@@ -4,6 +4,7 @@ from sqlalchemy.orm import relationship, declarative_base
 
 Base = declarative_base()
 
+
 class User(Base):
     __tablename__ = 'users'
     id = Column(BigInteger, primary_key=True, autoincrement=False)
@@ -12,6 +13,7 @@ class User(Base):
     
     # Cascade delete ensures that deleting a user removes all their bets
     bets = relationship("Bet", back_populates="user", cascade="all, delete-orphan")
+
 
 class Match(Base):
     __tablename__ = 'matches'
@@ -23,6 +25,7 @@ class Match(Base):
     status = Column(String, default="NS") # NS: Not Started, FT: Finished
     
     bets = relationship("Bet", back_populates="match", cascade="all, delete-orphan")
+
 
 class Bet(Base):
     __tablename__ = 'bets'

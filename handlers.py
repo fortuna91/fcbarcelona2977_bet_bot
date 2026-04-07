@@ -116,23 +116,23 @@ async def place_bet(message: types.Message, command: CommandObject):
 
     async with AsyncSessionLocal() as session:
         stmt = select(Match).where(Match.status == 'NS', Match.start_time > now).order_by(Match.start_time.asc())
-        next_match = (await session.execute(stmt)).scalars().first()
+        match_obj = (await session.execute(stmt)).scalars().first()
 
-        if not next_match or next_match.start_time.date() != now.date():
+        if not match_obj or match_obj.start_time.date() != now.date():
             logger.warning(f"User {message.from_user.id} tried to bet, but no match is scheduled for today.")
             return await message.answer("❌ Сегодня нет матчей Барселоны. Ставки открыты только в дни матчей!")
 
-        stmt_bet = select(Bet).where(Bet.user_id == message.from_user.id, Bet.match_id == next_match.id)
+        stmt_bet = select(Bet).where(Bet.user_id == message.from_user.id, Bet.match_id == match_obj.id)
         bet = (await session.execute(stmt_bet)).scalar_one_or_none()
         
         if bet:
             bet.bet_home_score, bet.bet_guest_score = h_score, g_score
-            text = f"✅ Ставка обновлена на матч **{next_match.title}**: `{h_score}:{g_score}`."
-            logger.info(f"User {message.from_user.id} updated bet for match {next_match.id} to {h_score}:{g_score}.")
+            text = f"✅ Ставка обновлена на матч **{match_obj.title}**: `{h_score}:{g_score}`."
+            logger.info(f"User {message.from_user.id} updated bet for match {match_obj.id} to {h_score}:{g_score}.")
         else:
-            session.add(Bet(user_id=message.from_user.id, match_id=next_match.id, bet_home_score=h_score, bet_guest_score=g_score))
-            text = f"✅ Ставка принята на матч **{next_match.title}**: `{h_score}:{g_score}`!"
-            logger.info(f"User {message.from_user.id} placed new bet for match {next_match.id}: {h_score}:{g_score}.")
+            session.add(Bet(user_id=message.from_user.id, match_id=match_obj.id, bet_home_score=h_score, bet_guest_score=g_score))
+            text = f"✅ Ставка принята на матч **{match_obj.title}**: `{h_score}:{g_score}`!"
+            logger.info(f"User {message.from_user.id} placed new bet for match {match_obj.id}: {h_score}:{g_score}.")
             
         await session.commit()
         await message.answer(text, parse_mode="Markdown")
