@@ -2,6 +2,7 @@ aiogram
 sqlalchemy[asyncio]
 aiosqlite
 asyncpg
+psycopg2-binary
 apscheduler
 httpx
 python-dotenv
