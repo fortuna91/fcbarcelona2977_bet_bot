@@ -2,18 +2,29 @@ import re
 import datetime
 import os
 import logging
-import json
 from aiogram import Router, F, types
 from aiogram.filters import CommandStart, Command, CommandObject
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.fsm.context import FSMContext
 from sqlalchemy import select, func, desc, delete
 from sqlalchemy.orm import selectinload
 from models import User, Match, Bet
 from database import AsyncSessionLocal
 from scheduler import sync_matches
 
+
+# FSM States
+class BettingStates(StatesGroup):
+    waiting_for_score = State()
+
+
 router = Router()
 ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
 logger = logging.getLogger(__name__)
+
+# Flexible regex for scores: 2:1, 2 1, 2 : 1, 2-1, etc.
+SCORE_REGEX = r"(\d+)\s*[:\-\s]\s*(\d+)"
+
 
 @router.message(CommandStart())
 async def start_cmd(message: types.Message):
@@ -29,20 +40,22 @@ async def start_cmd(message: types.Message):
         else:
             await message.answer("С возвращением! Готовы к следующей игре?")
 
+
 @router.message(Command("help"))
 async def help_cmd(message: types.Message):
     logger.info(f"User {message.from_user.id} requested help.")
     help_text = (
         "📖 **FC Barcelona Bet Bot - Команды**\n\n"
-        "🔵 `/bet H:G` — Сделать или обновить ставку на сегодняшний матч (например, `/bet 2:1`).\n"
-        "📅 `/games` — Посмотреть ближайшие 5 матчей Барселоны.\n"
-        "🔴 `/mybets` — Посмотреть историю ставок и очки.\n"
-        "🏆 `/leaderboard` — Посмотреть таблицу лидеров.\n"
-        "❌ `/deleteme` — Удалить аккаунт и всю историю.\n"
-        "❓ `/help` — Показать это сообщение.\n\n"
+        "/bet H:G — Сделать или обновить ставку на сегодняшний матч (например, `/bet 2:1` or just `/bet`).\n"
+        "/games — Посмотреть ближайшие 5 матчей Барселоны.\n"
+        "/mybets — Посмотреть историю ставок и очки.\n"
+        "/leaderboard — Посмотреть таблицу лидеров.\n"
+        "/deleteme — Удалить аккаунт и всю историю.\n"
+        "/help — Показать это сообщение.\n\n"
         "⚽ *Примечание: Ставки принимаются только в дни матчей до начала игры!*"
     )
     await message.answer(help_text, parse_mode="Markdown")
+
 
 @router.message(Command("games"))
 async def games_cmd(message: types.Message):
@@ -50,7 +63,6 @@ async def games_cmd(message: types.Message):
     now = datetime.datetime.utcnow()
 
     async with AsyncSessionLocal() as session:
-        # Fetch the next 5 games directly from the database
         stmt = select(Match).where(Match.start_time > now).order_by(Match.start_time.asc()).limit(5)
         db_matches = (await session.execute(stmt)).scalars().all()
 
@@ -64,7 +76,6 @@ async def games_cmd(message: types.Message):
 
     response = "📅 **Ближайшие 5 матчей Барселоны:**\n\n"
     for match_obj in db_matches:
-        # Format: Day.Month.Year Hour:Minute
         date_str = match_obj.start_time.strftime("%d.%m.%Y %H:%M")
         response += f"⚽ {match_obj.title}\n⏰ {date_str} (UTC)\n\n"
 
@@ -72,40 +83,82 @@ async def games_cmd(message: types.Message):
 
 
 @router.message(Command("bet"))
-async def place_bet(message: types.Message, command: CommandObject):
-    logger.info(f"User {message.from_user.id} is attempting to place a bet with args: {command.args}")
-    if not command.args:
-        return await message.answer("Использование: `/bet 2:1`", parse_mode="Markdown")
-
-    match_score = re.search(r"(\d+)[:\-](\d+)", command.args)
-    if not match_score:
-        return await message.answer("❌ Неверный формат. Используйте: `/bet 2:1`")
-    
-    h_score, g_score = int(match_score.group(1)), int(match_score.group(2))
+async def place_bet(message: types.Message, command: CommandObject, state: FSMContext):
+    logger.info(f"User {message.from_user.id} called /bet with args: {command.args}")
     now = datetime.datetime.utcnow()
 
     async with AsyncSessionLocal() as session:
         stmt = select(Match).where(Match.status == 'NS', Match.start_time > now).order_by(Match.start_time.asc())
         match_obj = (await session.execute(stmt)).scalars().first()
 
+        # CASE A: No match today
         if not match_obj or match_obj.start_time.date() != now.date():
-            logger.warning(f"User {message.from_user.id} tried to bet, but no match is scheduled for today.")
-            return await message.answer("❌ Сегодня нет матчей Барселоны. Ставки открыты только в дни матчей!")
-
-        stmt_bet = select(Bet).where(Bet.user_id == message.from_user.id, Bet.match_id == match_obj.id)
-        bet = (await session.execute(stmt_bet)).scalar_one_or_none()
-        
-        if bet:
-            bet.bet_home_score, bet.bet_guest_score = h_score, g_score
-            text = f"✅ Ставка обновлена на матч **{match_obj.title}**: `{h_score}:{g_score}`."
-            logger.info(f"User {message.from_user.id} updated bet for match {match_obj.id} to {h_score}:{g_score}.")
-        else:
-            session.add(Bet(user_id=message.from_user.id, match_id=match_obj.id, bet_home_score=h_score, bet_guest_score=g_score))
-            text = f"✅ Ставка принята на матч **{match_obj.title}**: `{h_score}:{g_score}`!"
-            logger.info(f"User {message.from_user.id} placed new bet for match {match_obj.id}: {h_score}:{g_score}.")
+            next_stmt = select(Match).where(Match.start_time > now).order_by(Match.start_time.asc()).limit(1)
+            next_game = (await session.execute(next_stmt)).scalars().first()
             
-        await session.commit()
-        await message.answer(text, parse_mode="Markdown")
+            msg = "❌ Сегодня нет матчей Барселоны. Ставки открыты только в дни матчей!"
+            if next_game:
+                date_str = next_game.start_time.strftime("%d.%m.%Y %H:%M")
+                msg += f"\n\n📅 Следующая игра:\n**{next_game.title}**\n⏰ {date_str} (UTC)"
+            
+            return await message.answer(msg, parse_mode="Markdown")
+
+        # CASE B: Match exists today
+        if command.args:
+            match_score = re.search(SCORE_REGEX, command.args)
+            if not match_score:
+                return await message.answer("❌ Неверный формат. Используйте: `2:1`, `2 1` или `2-1`.")
+            
+            h_score, g_score = int(match_score.group(1)), int(match_score.group(2))
+            await save_bet(message, session, match_obj, h_score, g_score)
+        else:
+            await state.set_state(BettingStates.waiting_for_score)
+            await state.update_data(match_id=match_obj.id)
+            await message.answer(
+                f"⚽ Сегодня игра: **{match_obj.title}**\n"
+                f"⏰ Начало: {match_obj.start_time.strftime('%H:%M')} (UTC)\n\n"
+                f"Пришлите ваш прогноз (например, `2:1` или `2 1`):",
+                parse_mode="Markdown"
+            )
+
+
+@router.message(BettingStates.waiting_for_score)
+async def process_bet_score(message: types.Message, state: FSMContext):
+    match_score = re.search(SCORE_REGEX, message.text)
+    if not match_score:
+        return await message.answer("❌ Неверный формат. Пожалуйста, введите счет в формате `2:1` или `2 1`.")
+
+    h_score, g_score = int(match_score.group(1)), int(match_score.group(2))
+    data = await state.get_data()
+    match_id = data.get("match_id")
+
+    async with AsyncSessionLocal() as session:
+        match_obj = await session.get(Match, match_id)
+        if not match_obj or match_obj.status == 'FT' or match_obj.start_time < datetime.datetime.utcnow():
+            await state.clear()
+            return await message.answer("❌ Извините, время для ставок на этот матч истекло.")
+
+        await save_bet(message, session, match_obj, h_score, g_score)
+    
+    await state.clear()
+
+
+async def save_bet(message: types.Message, session, match_obj, h_score, g_score):
+    stmt_bet = select(Bet).where(Bet.user_id == message.from_user.id, Bet.match_id == match_obj.id)
+    bet = (await session.execute(stmt_bet)).scalar_one_or_none()
+    
+    if bet:
+        bet.bet_home_score, bet.bet_guest_score = h_score, g_score
+        text = f"✅ Ставка обновлена на матч **{match_obj.title}**: `{h_score}:{g_score}`."
+        logger.info(f"User {message.from_user.id} updated bet for match {match_obj.id} to {h_score}:{g_score}.")
+    else:
+        session.add(Bet(user_id=message.from_user.id, match_id=match_obj.id, bet_home_score=h_score, bet_guest_score=g_score))
+        text = f"✅ Ставка принята на матч **{match_obj.title}**: `{h_score}:{g_score}`!"
+        logger.info(f"User {message.from_user.id} placed new bet for match {match_obj.id}: {h_score}:{g_score}.")
+        
+    await session.commit()
+    await message.answer(text, parse_mode="Markdown")
+
 
 @router.message(Command("mybets"))
 async def my_bets(message: types.Message):
@@ -124,6 +177,7 @@ async def my_bets(message: types.Message):
             response += f"🔹 {m.title}\nСтавка: {bet.bet_home_score}:{bet.bet_guest_score} | Результат: {res} | Очки: {bet.points_earned}\n\n"
             
         await message.answer(response, parse_mode="Markdown")
+
 
 @router.message(Command("leaderboard"))
 async def leaderboard(message: types.Message):
@@ -144,6 +198,7 @@ async def leaderboard(message: types.Message):
         header = f"🎖 Вы сейчас на **{user_rank} месте** с **{user_points} очками**!\n\n" if user_rank else ""
         await message.answer(header + response, parse_mode="Markdown")
 
+
 @router.message(Command("deleteme"))
 async def delete_me(message: types.Message):
     logger.info(f"User {message.from_user.id} requested account deletion.")
@@ -156,6 +211,7 @@ async def delete_me(message: types.Message):
             await message.answer("❌ Ваш аккаунт и вся история ставок удалены.")
         else:
             await message.answer("Аккаунт не найден.")
+
 
 @router.message(Command("reset_all_scores"))
 async def reset_scores(message: types.Message):
