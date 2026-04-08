@@ -155,7 +155,7 @@ async def place_bet(message: types.Message, command: CommandObject, state: FSMCo
                         InlineKeyboardButton(text="❌ Нет", callback_data="cancel_bet_change")
                     ]
                 ])
-                msg = (f"⚠️ У тебя уже сделан прогноз на этот матч **{match_obj.title}**.\n"
+                msg = (f"⚠️ У тебя уже сделан прогноз на матч **{match_obj.title}**.\n"
                        f"Твой прогноз: `{existing_bet.bet_home_score}:{existing_bet.bet_guest_score}`.\n\n"
                        f"Хочешь изменить его на `{h_score}:{g_score}`?")
                 return await message.answer(msg, reply_markup=kb, parse_mode="Markdown")
