@@ -38,10 +38,10 @@ def get_too_late_msg(match_obj: Match, existing_bet: Bet = None) -> str:
     """Returns a 'too late' message for the given match and optional existing bet."""
     if existing_bet:
         h, g = existing_bet.bet_home_score, existing_bet.bet_guest_score
-        return (f"❌ Слишком поздно менять ставку на матч **{match_obj.title}**! "
+        return (f"❌ Слишком поздно менять прогноз на матч **{match_obj.title}**! "
                 f"Матч начинается менее чем через 5 минут или уже идет. "
-                f"Ваш прогноз: `{h}:{g}`.")
-    return (f"❌ Слишком поздно для ставки на матч **{match_obj.title}**! "
+                f"Твой прогноз: `{h}:{g}`.")
+    return (f"❌ Слишком поздно для прогноза на матч **{match_obj.title}**! "
             f"Матч начинается менее чем через 5 минут или уже идет.")
 
 
@@ -60,7 +60,7 @@ async def start_cmd(message: types.Message):
             session.add(user)
             await session.commit()
             logger.info(f"New user registered: {message.from_user.id} ({full_name})")
-            await message.answer(f"🔵🔴 Добро пожаловать, {full_name}, в FC Barcelona Bet Bot! Вы зарегистрированы. Используйте /help для просмотра команд.")
+            await message.answer(f"🔵🔴 Добро пожаловать, {full_name}, в Club2977 Score Bot! Тут мы пытаемся угадать счет матчей Барселоны! Используйте /help для просмотра команд.")
         else:
             # Update name if changed
             user.display_name = full_name
@@ -73,13 +73,13 @@ async def help_cmd(message: types.Message):
     logger.info(f"User {message.from_user.id} requested help.")
     help_text = (
         "📖 **FC Barcelona Bet Bot - Команды**\n\n"
-        "/bet H:G — Сделать или обновить ставку на сегодняшний матч (например, `/bet 2:1` or just `/bet`).\n"
+        "/bet H:G — Сделать или обновить прогноз на сегодняшний матч (например, `/bet 2:1` or just `/bet`).\n"
         "/games — Посмотреть ближайшие 5 матчей Барселоны.\n"
-        "/mybets — Посмотреть историю ставок и очки.\n"
+        "/mybets — Посмотреть историю прогнозов и очки.\n"
         "/leaderboard — Посмотреть таблицу лидеров.\n"
         "/deleteme — Удалить аккаунт и всю историю.\n"
         "/help — Показать это сообщение.\n\n"
-        "⚽ *Примечание: Ставки принимаются только в дни матчей до начала игры!*"
+        "⚽ *Примечание: Прогнозы принимаются только в дни матчей до начала игры!*"
     )
     await message.answer(help_text, parse_mode="Markdown")
 
@@ -123,7 +123,7 @@ async def place_bet(message: types.Message, command: CommandObject, state: FSMCo
             next_stmt = select(Match).where(Match.start_time > now).order_by(Match.start_time.asc()).limit(1)
             next_game = (await session.execute(next_stmt)).scalars().first()
             
-            msg = "❌ Сегодня нет матчей Барселоны. Ставки открыты только в дни матчей!"
+            msg = "❌ Сегодня нет матчей Барселоны. Прогнозы принимаются только в дни матчей!"
             if next_game:
                 date_str = next_game.start_time.strftime("%d.%m.%Y %H:%M")
                 msg += f"\n\n📅 Следующая игра:\n**{next_game.title}**\n⏰ {date_str} (UTC)"
@@ -155,9 +155,9 @@ async def place_bet(message: types.Message, command: CommandObject, state: FSMCo
                         InlineKeyboardButton(text="❌ Нет", callback_data="cancel_bet_change")
                     ]
                 ])
-                msg = (f"⚠️ Вы уже сделали ставку на этот матч **{match_obj.title}**.\n"
-                       f"Ваш прогноз: `{existing_bet.bet_home_score}:{existing_bet.bet_guest_score}`.\n\n"
-                       f"Хотите изменить его на `{h_score}:{g_score}`?")
+                msg = (f"⚠️ У тебя уже сделан прогноз на этот матч **{match_obj.title}**.\n"
+                       f"Твой прогноз: `{existing_bet.bet_home_score}:{existing_bet.bet_guest_score}`.\n\n"
+                       f"Хочешь изменить его на `{h_score}:{g_score}`?")
                 return await message.answer(msg, reply_markup=kb, parse_mode="Markdown")
             
             await save_bet(message, message.from_user.id, session, match_obj, h_score, g_score)
@@ -167,7 +167,7 @@ async def place_bet(message: types.Message, command: CommandObject, state: FSMCo
             await message.answer(
                 f"⚽ Сегодня игра: **{match_obj.title}**\n"
                 f"⏰ Начало: {match_obj.start_time.strftime('%H:%M')} (UTC)\n\n"
-                f"Пришлите ваш прогноз (например, `2:1` или `2 1`):",
+                f"Пришли свой прогноз (например, `2:1` или `2 1`):",
                 parse_mode="Markdown"
             )
 
@@ -191,7 +191,7 @@ async def process_bet_score(message: types.Message, state: FSMContext):
                 existing_bet = (await session.execute(stmt_bet)).scalar_one_or_none()
                 msg = get_too_late_msg(match_obj, existing_bet)
             else:
-                msg = "❌ Извините, время для ставок на этот матч истекло."
+                msg = "❌ Извини, время для прогноза на этот матч истекло."
             
             return await message.answer(msg, parse_mode="Markdown")
 
@@ -206,9 +206,9 @@ async def process_bet_score(message: types.Message, state: FSMContext):
                     InlineKeyboardButton(text="❌ Нет", callback_data="cancel_bet_change")
                 ]
             ])
-            msg = (f"⚠️ Вы уже сделали ставку на этот матч **{match_obj.title}**.\n"
-                   f"Ваш прогноз: `{existing_bet.bet_home_score}:{existing_bet.bet_guest_score}`.\n\n"
-                   f"Хотите изменить его на `{h_score}:{g_score}`?")
+            msg = (f"⚠️ У тебя уже сделан прогноз на этот матч **{match_obj.title}**.\n"
+                   f"Твой прогноз: `{existing_bet.bet_home_score}:{existing_bet.bet_guest_score}`.\n\n"
+                   f"Хочешь изменить его на `{h_score}:{g_score}`?")
             await state.clear()
             return await message.answer(msg, reply_markup=kb, parse_mode="Markdown")
 
@@ -227,7 +227,7 @@ async def confirm_bet_change(callback: CallbackQuery, state: FSMContext):
     async with AsyncSessionLocal() as session:
         match_obj = await session.get(Match, match_id)
         if not match_obj or not is_betting_allowed(match_obj.start_time):
-            await callback.message.edit_text("❌ Извините, время для изменения ставки истекло.", reply_markup=None)
+            await callback.message.edit_text("❌ Извини, время для изменения прогноза истекло.", reply_markup=None)
             return await callback.answer()
             
         await save_bet(callback.message, callback.from_user.id, session, match_obj, h_score, g_score)
@@ -248,11 +248,11 @@ async def save_bet(message: types.Message, user_id: int, session, match_obj, h_s
     
     if bet:
         bet.bet_home_score, bet.bet_guest_score = h_score, g_score
-        text = f"✅ Ставка обновлена на матч **{match_obj.title}**: `{h_score}:{g_score}`."
+        text = f"✅ Прогноз обновлен на матч **{match_obj.title}**: `{h_score}:{g_score}`."
         logger.info(f"User {user_id} updated bet for match {match_obj.id} to {h_score}:{g_score}.")
     else:
         session.add(Bet(user_id=user_id, match_id=match_obj.id, bet_home_score=h_score, bet_guest_score=g_score))
-        text = f"✅ Ставка принята на матч **{match_obj.title}**: `{h_score}:{g_score}`!"
+        text = f"✅ Прогноз принят на матч **{match_obj.title}**: `{h_score}:{g_score}`!"
         logger.info(f"User {user_id} placed new bet for match {match_obj.id}: {h_score}:{g_score}.")
         
     await session.commit()
@@ -267,13 +267,13 @@ async def my_bets(message: types.Message):
         bets = (await session.execute(stmt)).scalars().all()
         
         if not bets:
-            return await message.answer("Вы еще не сделали ни одной ставки.")
+            return await message.answer("У тебя еще нет ни одного прогноза.")
             
-        response = "📊 **Ваша история ставок:**\n\n"
+        response = "📊 **Твоя история прогнозов:**\n\n"
         for bet in bets:
             m = bet.match
             res = f"{m.actual_home_score}:{m.actual_guest_score}" if m.status == 'FT' else "Ожидается"
-            response += f"🔹 {m.title}\nСтавка: {bet.bet_home_score}:{bet.bet_guest_score} | Результат: {res} | Очки: {bet.points_earned}\n\n"
+            response += f"🔹 {m.title}\nПрогноз: {bet.bet_home_score}:{bet.bet_guest_score} | Результат: {res} | Очки: {bet.points_earned}\n\n"
             
         await message.answer(response, parse_mode="Markdown")
 
@@ -294,7 +294,7 @@ async def leaderboard(message: types.Message):
             name = row.display_name or (f"@{row.username}" if row.username else f"User {row.id}")
             response += f"{idx}. {name} — {row.total} очк.\n"
             
-        header = f"🎖 Вы сейчас на **{user_rank} месте** с **{user_points} очками**!\n\n" if user_rank else ""
+        header = f"🎖 Ты сейчас на **{user_rank} месте** с **{user_points} очками**!\n\n" if user_rank else ""
         await message.answer(header + response, parse_mode="Markdown")
 
 
@@ -307,7 +307,7 @@ async def delete_me(message: types.Message):
             await session.delete(user)
             await session.commit()
             logger.warning(f"User {message.from_user.id} has deleted their account.")
-            await message.answer("❌ Ваш аккаунт и вся история ставок удалены.")
+            await message.answer("❌ Твой аккаунт и вся история прогнозов удалены.")
         else:
             await message.answer("Аккаунт не найден.")
 
