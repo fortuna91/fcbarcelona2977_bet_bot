@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 logger = logging.getLogger(__name__)
 
+
 class FootballAPI:
     def __init__(self):
         # We use the same env variable name but now it expects a football-data.org token

@@ -210,7 +210,6 @@ def setup_scheduler(bot: Bot):
     scheduler.add_job(daily_match_reminder, 'cron', hour=6, args=[bot])
     
     # Run sync and job check on startup
-    scheduler.add_job(sync_matches, 'date', run_date=datetime.datetime.utcnow())
     scheduler.add_job(check_upcoming_jobs, 'date', run_date=datetime.datetime.utcnow() + datetime.timedelta(seconds=5), args=[bot])
     
     scheduler.start()
