@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 from models import User, Match, Bet
 from database import AsyncSessionLocal
 from scheduler import sync_matches
+import db_utils
 
 
 # FSM States
@@ -34,6 +35,33 @@ def is_betting_allowed(start_time: datetime.datetime, now: datetime.datetime = N
     return (start_time - now) > datetime.timedelta(minutes=5)
 
 
+def parse_score(text: str):
+    """Parses score from text using regex."""
+    match = re.search(SCORE_REGEX, text)
+    if match:
+        return int(match.group(1)), int(match.group(2))
+    return None
+
+
+def get_bet_confirmation_keyboard(match_id, h, g):
+    """Returns an inline keyboard for bet confirmation."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Да", callback_data=f"confirm_bet_change:{match_id}:{h}:{g}"),
+            InlineKeyboardButton(text="❌ Нет", callback_data="cancel_bet_change")
+        ]
+    ])
+
+
+def format_match_list(matches):
+    """Formats a list of matches for display."""
+    response = "📅 **Ближайшие 5 матчей Барселоны:**\n\n"
+    for match_obj in matches:
+        date_str = match_obj.start_time.strftime("%d.%m.%Y %H:%M")
+        response += f"⚽ {match_obj.title}\n⏰ {date_str} (UTC)\n\n"
+    return response
+
+
 def get_too_late_msg(match_obj: Match, existing_bet: Bet = None) -> str:
     """Returns a 'too late' message for the given match and optional existing bet."""
     if existing_bet:
@@ -50,7 +78,7 @@ async def start_cmd(message: types.Message):
     logger.info(f"User {message.from_user.id} started the bot.")
     full_name = message.from_user.full_name
     async with AsyncSessionLocal() as session:
-        user = await session.get(User, message.from_user.id)
+        user = await db_utils.get_user(session, message.from_user.id)
         if not user:
             user = User(
                 id=message.from_user.id, 
@@ -90,23 +118,17 @@ async def games_cmd(message: types.Message):
     now = datetime.datetime.utcnow()
 
     async with AsyncSessionLocal() as session:
-        stmt = select(Match).where(Match.start_time > now).order_by(Match.start_time.asc()).limit(5)
-        db_matches = (await session.execute(stmt)).scalars().all()
+        db_matches = await db_utils.get_upcoming_matches(session, limit=5, now=now)
 
         if not db_matches:
             logger.info("No future matches found in DB. Forcing API sync...")
             await sync_matches()
-            db_matches = (await session.execute(stmt)).scalars().all()
+            db_matches = await db_utils.get_upcoming_matches(session, limit=5, now=now)
 
     if not db_matches:
         return await message.answer("К сожалению, информации о ближайших матчах пока нет.")
 
-    response = "📅 **Ближайшие 5 матчей Барселоны:**\n\n"
-    for match_obj in db_matches:
-        date_str = match_obj.start_time.strftime("%d.%m.%Y %H:%M")
-        response += f"⚽ {match_obj.title}\n⏰ {date_str} (UTC)\n\n"
-
-    await message.answer(response, parse_mode="Markdown")
+    await message.answer(format_match_list(db_matches), parse_mode="Markdown")
 
 
 @router.message(Command("bet"))
@@ -115,13 +137,11 @@ async def place_bet(message: types.Message, command: CommandObject, state: FSMCo
     now = datetime.datetime.utcnow()
 
     async with AsyncSessionLocal() as session:
-        stmt = select(Match).where(Match.status == 'NS', Match.start_time > now).order_by(Match.start_time.asc())
-        match_obj = (await session.execute(stmt)).scalars().first()
+        match_obj = await db_utils.get_next_match(session, now)
 
         # CASE A: No match today
         if not match_obj or match_obj.start_time.date() != now.date():
-            next_stmt = select(Match).where(Match.start_time > now).order_by(Match.start_time.asc()).limit(1)
-            next_game = (await session.execute(next_stmt)).scalars().first()
+            next_game = await db_utils.get_next_match(session, now)
             
             msg = "❌ Сегодня нет матчей Барселоны. Прогнозы принимаются только в дни матчей!"
             if next_game:
@@ -132,29 +152,22 @@ async def place_bet(message: types.Message, command: CommandObject, state: FSMCo
 
         # CASE B: Match exists today
         if not is_betting_allowed(match_obj.start_time, now):
-            stmt_bet = select(Bet).where(Bet.user_id == message.from_user.id, Bet.match_id == match_obj.id)
-            existing_bet = (await session.execute(stmt_bet)).scalar_one_or_none()
+            existing_bet = await db_utils.get_user_bet(session, message.from_user.id, match_obj.id)
             msg = get_too_late_msg(match_obj, existing_bet)
             return await message.answer(msg, parse_mode="Markdown")
 
         if command.args:
-            match_score = re.search(SCORE_REGEX, command.args)
-            if not match_score:
+            score = parse_score(command.args)
+            if not score:
                 return await message.answer("❌ Неверный формат. Используйте: `2:1`, `2 1` или `2-1`.")
             
-            h_score, g_score = int(match_score.group(1)), int(match_score.group(2))
+            h_score, g_score = score
             
             # Check for existing bet
-            stmt_bet = select(Bet).where(Bet.user_id == message.from_user.id, Bet.match_id == match_obj.id)
-            existing_bet = (await session.execute(stmt_bet)).scalar_one_or_none()
+            existing_bet = await db_utils.get_user_bet(session, message.from_user.id, match_obj.id)
             
             if existing_bet:
-                kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [
-                        InlineKeyboardButton(text="✅ Да", callback_data=f"confirm_bet_change:{match_obj.id}:{h_score}:{g_score}"),
-                        InlineKeyboardButton(text="❌ Нет", callback_data="cancel_bet_change")
-                    ]
-                ])
+                kb = get_bet_confirmation_keyboard(match_obj.id, h_score, g_score)
                 msg = (f"⚠️ У тебя уже сделан прогноз на матч **{match_obj.title}**.\n"
                        f"Твой прогноз: `{existing_bet.bet_home_score}:{existing_bet.bet_guest_score}`.\n\n"
                        f"Хочешь изменить его на `{h_score}:{g_score}`?")
@@ -174,11 +187,11 @@ async def place_bet(message: types.Message, command: CommandObject, state: FSMCo
 
 @router.message(BettingStates.waiting_for_score)
 async def process_bet_score(message: types.Message, state: FSMContext):
-    match_score = re.search(SCORE_REGEX, message.text)
-    if not match_score:
+    score = parse_score(message.text)
+    if not score:
         return await message.answer("❌ Неверный формат. Пожалуйста, введите счет в формате `2:1` или `2 1`.")
 
-    h_score, g_score = int(match_score.group(1)), int(match_score.group(2))
+    h_score, g_score = score
     data = await state.get_data()
     match_id = data.get("match_id")
 
@@ -187,8 +200,7 @@ async def process_bet_score(message: types.Message, state: FSMContext):
         if not match_obj or match_obj.status == 'FT' or not is_betting_allowed(match_obj.start_time):
             await state.clear()
             if match_obj:
-                stmt_bet = select(Bet).where(Bet.user_id == message.from_user.id, Bet.match_id == match_obj.id)
-                existing_bet = (await session.execute(stmt_bet)).scalar_one_or_none()
+                existing_bet = await db_utils.get_user_bet(session, message.from_user.id, match_obj.id)
                 msg = get_too_late_msg(match_obj, existing_bet)
             else:
                 msg = "❌ Извини, время для прогноза на этот матч истекло."
@@ -196,16 +208,10 @@ async def process_bet_score(message: types.Message, state: FSMContext):
             return await message.answer(msg, parse_mode="Markdown")
 
         # Check if user already has a bet for this match
-        stmt_bet = select(Bet).where(Bet.user_id == message.from_user.id, Bet.match_id == match_obj.id)
-        existing_bet = (await session.execute(stmt_bet)).scalar_one_or_none()
+        existing_bet = await db_utils.get_user_bet(session, message.from_user.id, match_obj.id)
 
         if existing_bet:
-            kb = InlineKeyboardMarkup(inline_keyboard=[
-                [
-                    InlineKeyboardButton(text="✅ Да", callback_data=f"confirm_bet_change:{match_obj.id}:{h_score}:{g_score}"),
-                    InlineKeyboardButton(text="❌ Нет", callback_data="cancel_bet_change")
-                ]
-            ])
+            kb = get_bet_confirmation_keyboard(match_obj.id, h_score, g_score)
             msg = (f"⚠️ У тебя уже сделан прогноз на этот матч **{match_obj.title}**.\n"
                    f"Твой прогноз: `{existing_bet.bet_home_score}:{existing_bet.bet_guest_score}`.\n\n"
                    f"Хочешь изменить его на `{h_score}:{g_score}`?")
@@ -282,8 +288,7 @@ async def my_bets(message: types.Message):
 async def leaderboard(message: types.Message):
     logger.info(f"User {message.from_user.id} requested the leaderboard.")
     async with AsyncSessionLocal() as session:
-        stmt = select(User.display_name, User.username, User.id, func.sum(Bet.points_earned).label("total")).join(Bet).group_by(User.id).order_by(desc("total"))
-        rankings = (await session.execute(stmt)).all()
+        rankings = await db_utils.get_leaderboard(session)
         
         response = "🏆 **Таблица лидеров** 🏆\n\n"
         user_rank, user_points = 0, 0

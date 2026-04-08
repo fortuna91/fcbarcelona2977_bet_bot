@@ -7,9 +7,19 @@ from models import Match, User, Bet
 from points_calculator import calculate_points
 from database import AsyncSessionLocal
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+import db_utils
 
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler(timezone='UTC')
+
+
+async def notify_users(bot: Bot, users, text: str):
+    """Helper to send the same message to multiple users."""
+    for user in users:
+        try:
+            await bot.send_message(user.id, text)
+        except Exception as e:
+            logger.debug(f"Could not send notification to {user.id}: {e}")
 
 
 async def sync_matches():
@@ -117,15 +127,10 @@ async def daily_match_reminder(bot: Bot):
         if match_obj:
             logger.info(f"Match found today: {match_obj.title}. Identifying users who haven't bet.")
             # Find users who haven't placed a bet for this match
-            subquery = select(Bet.user_id).where(Bet.match_id == match_obj.id)
-            stmt_users = select(User).where(User.id.not_in(subquery))
-            users = (await session.execute(stmt_users)).scalars().all()
-
-            for user in users:
-                try:
-                    await bot.send_message(user.id, f"⚽ День матча!\nСегодня нас ждет: {match_obj.title}.\nНе забудь сделать прогноз с помощью /bet")
-                except Exception as e:
-                    logger.debug(f"Could not send daily reminder to {user.id}: {e}")
+            users = await db_utils.get_users_without_bet(session, match_obj.id)
+            
+            msg = f"⚽ День матча!\nСегодня нас ждет: {match_obj.title}.\nНе забудь сделать прогноз с помощью /bet"
+            await notify_users(bot, users, msg)
 
             # Schedule result checking to start 1h 50m after kickoff
             start_poll = match_obj.start_time + datetime.timedelta(minutes=110)
@@ -166,20 +171,15 @@ async def hourly_bet_reminder(bot: Bot, match_id: int):
             return
 
         # Find users who haven't placed a bet for this match
-        subquery = select(Bet.user_id).where(Bet.match_id == match_obj.id)
-        stmt_users = select(User).where(User.id.not_in(subquery))
-        users = (await session.execute(stmt_users)).scalars().all()
+        users = await db_utils.get_users_without_bet(session, match_obj.id)
         
-        for user in users:
-            try:
-                await bot.send_message(user.id, f"⏰ Последний шанс!\nБарселона начинает через час {match_obj.title}.\nТы еще успеешь сделать ставку! Используй /bet прямо сейчас.")
-            except Exception as e:
-                logger.debug(f"Could not send hourly reminder to {user.id}: {e}")
+        msg = f"⏰ Последний шанс!\nБарселона начинает через час {match_obj.title}.\nТы еще успеешь сделать ставку! Используй /bet прямо сейчас."
+        await notify_users(bot, users, msg)
 
 
 def setup_scheduler(bot: Bot):
     logger.info("Configuring scheduler jobs...")
     scheduler.add_job(sync_matches, 'cron', hour=2)
-    scheduler.add_job(daily_match_reminder, 'cron', hour=8, args=[bot])
+    scheduler.add_job(daily_match_reminder, 'cron', hour=6, args=[bot])
     scheduler.start()
     logger.info("Scheduler started.")
