@@ -67,7 +67,7 @@ def get_too_late_msg(match_obj: Match, existing_bet: Bet = None) -> str:
     if existing_bet:
         h, g = existing_bet.bet_home_score, existing_bet.bet_guest_score
         return (f"❌ Слишком поздно менять прогноз на матч **{match_obj.title}**! "
-                f"Матч начинается менее чем через 5 минут или уже идет. "
+                f"Матч начинается менее чем через 5 минут или уже идет.\n"
                 f"Твой прогноз: `{h}:{g}`.")
     return (f"❌ Слишком поздно для прогноза на матч **{match_obj.title}**! "
             f"Матч начинается менее чем через 5 минут или уже идет.")
