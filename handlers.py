@@ -26,6 +26,12 @@ logger = logging.getLogger(__name__)
 SCORE_REGEX = r"(\d+)\s*[:\-\s]\s*(\d+)"
 
 
+def is_betting_allowed(start_time: datetime.datetime) -> bool:
+    """Checks if betting is allowed (more than 5 minutes before start)."""
+    now = datetime.datetime.utcnow()
+    return (start_time - now) > datetime.timedelta(minutes=5)
+
+
 @router.message(CommandStart())
 async def start_cmd(message: types.Message):
     logger.info(f"User {message.from_user.id} started the bot.")
@@ -112,6 +118,21 @@ async def place_bet(message: types.Message, command: CommandObject, state: FSMCo
             return await message.answer(msg, parse_mode="Markdown")
 
         # CASE B: Match exists today
+        if not is_betting_allowed(match_obj.start_time):
+            stmt_bet = select(Bet).where(Bet.user_id == message.from_user.id, Bet.match_id == match_obj.id)
+            existing_bet = (await session.execute(stmt_bet)).scalar_one_or_none()
+            
+            if existing_bet:
+                h, g = existing_bet.bet_home_score, existing_bet.bet_guest_score
+                msg = (f"❌ Слишком поздно менять ставку на матч **{match_obj.title}**! "
+                       f"Матч начинается менее чем через 5 минут или уже идет. "
+                       f"Ваш прогноз: `{h}:{g}`.")
+            else:
+                msg = (f"❌ Слишком поздно для ставки на матч **{match_obj.title}**! "
+                       f"Матч начинается менее чем через 5 минут или уже идет.")
+            
+            return await message.answer(msg, parse_mode="Markdown")
+
         if command.args:
             match_score = re.search(SCORE_REGEX, command.args)
             if not match_score:
@@ -142,9 +163,23 @@ async def process_bet_score(message: types.Message, state: FSMContext):
 
     async with AsyncSessionLocal() as session:
         match_obj = await session.get(Match, match_id)
-        if not match_obj or match_obj.status == 'FT' or match_obj.start_time < datetime.datetime.utcnow():
+        if not match_obj or match_obj.status == 'FT' or not is_betting_allowed(match_obj.start_time):
             await state.clear()
-            return await message.answer("❌ Извините, время для ставок на этот матч истекло.")
+            if match_obj:
+                stmt_bet = select(Bet).where(Bet.user_id == message.from_user.id, Bet.match_id == match_obj.id)
+                existing_bet = (await session.execute(stmt_bet)).scalar_one_or_none()
+                if existing_bet:
+                    h, g = existing_bet.bet_home_score, existing_bet.bet_guest_score
+                    msg = (f"❌ Слишком поздно менять ставку на матч **{match_obj.title}**! "
+                           f"Матч начинается менее чем через 5 минут или уже идет. "
+                           f"Ваш прогноз: `{h}:{g}`.")
+                else:
+                    msg = (f"❌ Слишком поздно для ставки на матч **{match_obj.title}**! "
+                           f"Матч начинается менее чем через 5 минут или уже идет.")
+            else:
+                msg = "❌ Извините, время для ставок на этот матч истекло."
+            
+            return await message.answer(msg, parse_mode="Markdown")
 
         await save_bet(message, session, match_obj, h_score, g_score)
     
