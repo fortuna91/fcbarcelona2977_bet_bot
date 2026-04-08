@@ -137,10 +137,11 @@ async def place_bet(message: types.Message, command: CommandObject, state: FSMCo
     now = datetime.datetime.utcnow()
 
     async with AsyncSessionLocal() as session:
-        match_obj = await db_utils.get_next_match(session, now)
+        # First, check if there is a match TODAY
+        match_obj = await db_utils.get_match_on_day(session, now.date())
 
-        # CASE A: No match today
-        if not match_obj or match_obj.start_time.date() != now.date():
+        # If no match today, find the NEXT match
+        if not match_obj:
             next_game = await db_utils.get_next_match(session, now)
             
             msg = "❌ Сегодня нет матчей Барселоны. Прогнозы принимаются только в дни матчей!"
@@ -150,7 +151,8 @@ async def place_bet(message: types.Message, command: CommandObject, state: FSMCo
             
             return await message.answer(msg, parse_mode="Markdown")
 
-        # CASE B: Match exists today
+        # There is a match today.
+        # Check if betting is allowed (it might be too late or already started).
         if not is_betting_allowed(match_obj.start_time, now):
             existing_bet = await db_utils.get_user_bet(session, message.from_user.id, match_obj.id)
             msg = get_too_late_msg(match_obj, existing_bet)
