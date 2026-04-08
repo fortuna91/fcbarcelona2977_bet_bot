@@ -115,6 +115,59 @@ async def check_results_and_notify(bot: Bot, match_id: int):
             logger.info(f"Match {match_id} is still in progress or not finished yet.")
 
 
+async def schedule_match_jobs(bot: Bot, match_obj: Match):
+    """Schedules result checking and hourly reminders for a match."""
+    now = datetime.datetime.utcnow()
+    
+    # 1. Result checking (starts 1h 50m after kickoff)
+    start_poll = match_obj.start_time + datetime.timedelta(minutes=110)
+    # If the match has already started long ago, start polling almost immediately
+    if start_poll < now:
+        start_poll = now + datetime.timedelta(seconds=10)
+
+    scheduler.add_job(
+        check_results_and_notify,
+        'interval',
+        minutes=5,
+        start_date=start_poll,
+        args=[bot, match_obj.id],
+        id=f"check_{match_obj.id}",
+        replace_existing=True
+    )
+    logger.info(f"Scheduled result checking for match {match_obj.id} starting at {start_poll}")
+
+    # 2. Hourly reminder (1 hour before kickoff)
+    reminder_time = match_obj.start_time - datetime.timedelta(hours=1)
+    # Only schedule if it's still in the future
+    if reminder_time > now:
+        scheduler.add_job(
+            hourly_bet_reminder,
+            'date',
+            run_date=reminder_time,
+            args=[bot, match_obj.id],
+            id=f"hourly_{match_obj.id}",
+            replace_existing=True
+        )
+        logger.info(f"Scheduled hourly reminder for match {match_obj.id} at {reminder_time}")
+    else:
+        logger.debug(f"Hourly reminder for match {match_obj.id} skipped (time passed).")
+
+
+async def check_upcoming_jobs(bot: Bot):
+    """Checks database for unfinished matches and re-schedules jobs on startup."""
+    logger.info("Checking for upcoming/in-progress matches to re-schedule jobs...")
+    async with AsyncSessionLocal() as session:
+        # Find matches that are not yet finished
+        stmt = select(Match).where(Match.status == 'NS')
+        matches = (await session.execute(stmt)).scalars().all()
+        
+        for match_obj in matches:
+            # Re-schedule jobs for matches starting today or already in progress
+            now = datetime.datetime.utcnow()
+            if match_obj.start_time < now + datetime.timedelta(hours=24):
+                await schedule_match_jobs(bot, match_obj)
+
+
 async def daily_match_reminder(bot: Bot):
     """Sends a reminder at 8 AM if there is a match today to users who haven't bet."""
     logger.info("Checking for daily match reminders...")
@@ -132,34 +185,8 @@ async def daily_match_reminder(bot: Bot):
             msg = f"⚽ День матча!\nСегодня нас ждет: {match_obj.title}.\nНе забудь сделать прогноз с помощью /bet"
             await notify_users(bot, users, msg)
 
-            # Schedule result checking to start 1h 50m after kickoff
-            start_poll = match_obj.start_time + datetime.timedelta(minutes=110)
-            scheduler.add_job(
-                check_results_and_notify,
-                'interval',
-                minutes=5,
-                start_date=start_poll,
-                args=[bot, match_obj.id],
-                id=f"check_{match_obj.id}",
-                replace_existing=True
-            )
-            logger.info(f"Scheduled dynamic result checking for match {match_obj.id} starting at {start_poll}")
-
-            # Schedule hourly reminder (1 hour before kickoff)
-            reminder_time = match_obj.start_time - datetime.timedelta(hours=1)
-            # If kickoff is less than an hour away, run it very soon (e.g., in 1 minute)
-            if reminder_time < datetime.datetime.utcnow():
-                reminder_time = datetime.datetime.utcnow() + datetime.timedelta(minutes=1)
-
-            scheduler.add_job(
-                hourly_bet_reminder,
-                'date',
-                run_date=reminder_time,
-                args=[bot, match_obj.id],
-                id=f"hourly_{match_obj.id}",
-                replace_existing=True
-            )
-            logger.info(f"Scheduled hourly reminder for match {match_obj.id} at {reminder_time}")
+            # Schedule result checking and hourly reminder
+            await schedule_match_jobs(bot, match_obj)
 
 
 async def hourly_bet_reminder(bot: Bot, match_id: int):
@@ -181,5 +208,10 @@ def setup_scheduler(bot: Bot):
     logger.info("Configuring scheduler jobs...")
     scheduler.add_job(sync_matches, 'cron', hour=2)
     scheduler.add_job(daily_match_reminder, 'cron', hour=6, args=[bot])
+    
+    # Run sync and job check on startup
+    scheduler.add_job(sync_matches, 'date', run_date=datetime.datetime.utcnow())
+    scheduler.add_job(check_upcoming_jobs, 'date', run_date=datetime.datetime.utcnow() + datetime.timedelta(seconds=5), args=[bot])
+    
     scheduler.start()
     logger.info("Scheduler started.")
