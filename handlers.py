@@ -137,29 +137,30 @@ async def place_bet(message: types.Message, command: CommandObject, state: FSMCo
             msg = get_too_late_msg(match_obj, existing_bet)
             return await message.answer(msg, parse_mode="Markdown")
 
-        # Check if user already has a bet for this match
-        stmt_bet = select(Bet).where(Bet.user_id == message.from_user.id, Bet.match_id == match_obj.id)
-        existing_bet = (await session.execute(stmt_bet)).scalar_one_or_none()
-
-        if existing_bet:
-            kb = InlineKeyboardMarkup(inline_keyboard=[
-                [
-                    InlineKeyboardButton(text="✅ Да", callback_data=f"confirm_bet_change:{match_obj.id}"),
-                    InlineKeyboardButton(text="❌ Нет", callback_data="cancel_bet_change")
-                ]
-            ])
-            msg = (f"⚠️ Вы уже сделали ставку на этот матч **{match_obj.title}**.\n"
-                   f"Ваш прогноз: `{existing_bet.bet_home_score}:{existing_bet.bet_guest_score}`.\n\n"
-                   f"Хотите изменить его?")
-            return await message.answer(msg, reply_markup=kb, parse_mode="Markdown")
-
         if command.args:
             match_score = re.search(SCORE_REGEX, command.args)
             if not match_score:
                 return await message.answer("❌ Неверный формат. Используйте: `2:1`, `2 1` или `2-1`.")
             
             h_score, g_score = int(match_score.group(1)), int(match_score.group(2))
-            await save_bet(message, session, match_obj, h_score, g_score)
+            
+            # Check for existing bet
+            stmt_bet = select(Bet).where(Bet.user_id == message.from_user.id, Bet.match_id == match_obj.id)
+            existing_bet = (await session.execute(stmt_bet)).scalar_one_or_none()
+            
+            if existing_bet:
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="✅ Да", callback_data=f"confirm_bet_change:{match_obj.id}:{h_score}:{g_score}"),
+                        InlineKeyboardButton(text="❌ Нет", callback_data="cancel_bet_change")
+                    ]
+                ])
+                msg = (f"⚠️ Вы уже сделали ставку на этот матч **{match_obj.title}**.\n"
+                       f"Ваш прогноз: `{existing_bet.bet_home_score}:{existing_bet.bet_guest_score}`.\n\n"
+                       f"Хотите изменить его на `{h_score}:{g_score}`?")
+                return await message.answer(msg, reply_markup=kb, parse_mode="Markdown")
+            
+            await save_bet(message, message.from_user.id, session, match_obj, h_score, g_score)
         else:
             await state.set_state(BettingStates.waiting_for_score)
             await state.update_data(match_id=match_obj.id)
@@ -194,17 +195,44 @@ async def process_bet_score(message: types.Message, state: FSMContext):
             
             return await message.answer(msg, parse_mode="Markdown")
 
-        await save_bet(message, session, match_obj, h_score, g_score)
+        # Check if user already has a bet for this match
+        stmt_bet = select(Bet).where(Bet.user_id == message.from_user.id, Bet.match_id == match_obj.id)
+        existing_bet = (await session.execute(stmt_bet)).scalar_one_or_none()
+
+        if existing_bet:
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="✅ Да", callback_data=f"confirm_bet_change:{match_obj.id}:{h_score}:{g_score}"),
+                    InlineKeyboardButton(text="❌ Нет", callback_data="cancel_bet_change")
+                ]
+            ])
+            msg = (f"⚠️ Вы уже сделали ставку на этот матч **{match_obj.title}**.\n"
+                   f"Ваш прогноз: `{existing_bet.bet_home_score}:{existing_bet.bet_guest_score}`.\n\n"
+                   f"Хотите изменить его на `{h_score}:{g_score}`?")
+            await state.clear()
+            return await message.answer(msg, reply_markup=kb, parse_mode="Markdown")
+
+        await save_bet(message, message.from_user.id, session, match_obj, h_score, g_score)
     
     await state.clear()
 
 
 @router.callback_query(F.data.startswith("confirm_bet_change:"))
 async def confirm_bet_change(callback: CallbackQuery, state: FSMContext):
-    match_id = int(callback.data.split(":")[1])
-    await state.set_state(BettingStates.waiting_for_score)
-    await state.update_data(match_id=match_id)
-    await callback.message.edit_text("Введите ваш новый прогноз (например, `2:1`):", reply_markup=None, parse_mode="Markdown")
+    parts = callback.data.split(":")
+    match_id = int(parts[1])
+    h_score = int(parts[2])
+    g_score = int(parts[3])
+    
+    async with AsyncSessionLocal() as session:
+        match_obj = await session.get(Match, match_id)
+        if not match_obj or not is_betting_allowed(match_obj.start_time):
+            await callback.message.edit_text("❌ Извините, время для изменения ставки истекло.", reply_markup=None)
+            return await callback.answer()
+            
+        await save_bet(callback.message, callback.from_user.id, session, match_obj, h_score, g_score)
+    
+    await callback.message.delete()
     await callback.answer()
 
 
@@ -214,18 +242,18 @@ async def cancel_bet_change(callback: CallbackQuery):
     await callback.answer()
 
 
-async def save_bet(message: types.Message, session, match_obj, h_score, g_score):
-    stmt_bet = select(Bet).where(Bet.user_id == message.from_user.id, Bet.match_id == match_obj.id)
+async def save_bet(message: types.Message, user_id: int, session, match_obj, h_score, g_score):
+    stmt_bet = select(Bet).where(Bet.user_id == user_id, Bet.match_id == match_obj.id)
     bet = (await session.execute(stmt_bet)).scalar_one_or_none()
     
     if bet:
         bet.bet_home_score, bet.bet_guest_score = h_score, g_score
         text = f"✅ Ставка обновлена на матч **{match_obj.title}**: `{h_score}:{g_score}`."
-        logger.info(f"User {message.from_user.id} updated bet for match {match_obj.id} to {h_score}:{g_score}.")
+        logger.info(f"User {user_id} updated bet for match {match_obj.id} to {h_score}:{g_score}.")
     else:
-        session.add(Bet(user_id=message.from_user.id, match_id=match_obj.id, bet_home_score=h_score, bet_guest_score=g_score))
+        session.add(Bet(user_id=user_id, match_id=match_obj.id, bet_home_score=h_score, bet_guest_score=g_score))
         text = f"✅ Ставка принята на матч **{match_obj.title}**: `{h_score}:{g_score}`!"
-        logger.info(f"User {message.from_user.id} placed new bet for match {match_obj.id}: {h_score}:{g_score}.")
+        logger.info(f"User {user_id} placed new bet for match {match_obj.id}: {h_score}:{g_score}.")
         
     await session.commit()
     await message.answer(text, parse_mode="Markdown")

@@ -1,6 +1,6 @@
-import pytest
-from datetime import datetime, timedelta
+from datetime import datetime
 from handlers import is_betting_allowed
+
 
 def test_bet_timing():
     now = datetime(2024, 1, 1, 12, 0)
