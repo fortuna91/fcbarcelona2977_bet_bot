@@ -6,6 +6,7 @@ from aiogram import Router, F, types
 from aiogram.filters import CommandStart, Command, CommandObject
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from sqlalchemy import select, func, desc, delete
 from sqlalchemy.orm import selectinload
 from models import User, Match, Bet
@@ -133,6 +134,22 @@ async def place_bet(message: types.Message, command: CommandObject, state: FSMCo
             
             return await message.answer(msg, parse_mode="Markdown")
 
+        # Check if user already has a bet for this match
+        stmt_bet = select(Bet).where(Bet.user_id == message.from_user.id, Bet.match_id == match_obj.id)
+        existing_bet = (await session.execute(stmt_bet)).scalar_one_or_none()
+
+        if existing_bet:
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="✅ Да", callback_data=f"confirm_bet_change:{match_obj.id}"),
+                    InlineKeyboardButton(text="❌ Нет", callback_data="cancel_bet_change")
+                ]
+            ])
+            msg = (f"⚠️ Вы уже сделали ставку на этот матч **{match_obj.title}**.\n"
+                   f"Ваш прогноз: `{existing_bet.bet_home_score}:{existing_bet.bet_guest_score}`.\n\n"
+                   f"Хотите изменить его?")
+            return await message.answer(msg, reply_markup=kb, parse_mode="Markdown")
+
         if command.args:
             match_score = re.search(SCORE_REGEX, command.args)
             if not match_score:
@@ -184,6 +201,21 @@ async def process_bet_score(message: types.Message, state: FSMContext):
         await save_bet(message, session, match_obj, h_score, g_score)
     
     await state.clear()
+
+
+@router.callback_query(F.data.startswith("confirm_bet_change:"))
+async def confirm_bet_change(callback: CallbackQuery, state: FSMContext):
+    match_id = int(callback.data.split(":")[1])
+    await state.set_state(BettingStates.waiting_for_score)
+    await state.update_data(match_id=match_id)
+    await callback.message.edit_text("Введите ваш новый прогноз (например, `2:1`):", reply_markup=None, parse_mode="Markdown")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cancel_bet_change")
+async def cancel_bet_change(callback: CallbackQuery):
+    await callback.message.edit_text("ОК, оставляем как есть.", reply_markup=None)
+    await callback.answer()
 
 
 async def save_bet(message: types.Message, session, match_obj, h_score, g_score):
