@@ -327,17 +327,17 @@ async def leaderboard(message: types.Message):
         
         # Build the table lines
         table_lines = []
-        table_lines.append(" #  Игрок             Очки")
-        table_lines.append("─── ───────────────── ────")
+        table_lines.append(" #  Игрок                     Очки")
+        table_lines.append("─── ───────────────────────── ────")
         
         for idx, row in enumerate(rankings, 1):
             # 1. Rank column (3 cells wide)
             if idx == 1:
-                rank_str = "🥇 " # Emoji(2) + Space(1) = 3 cells
+                rank_str = "🥇" # Emoji(2) + Space(1) = 3 cells
             elif idx == 2:
-                rank_str = "🥈 "
+                rank_str = "🥈"
             elif idx == 3:
-                rank_str = "🥉 "
+                rank_str = "🥉"
             else:
                 rank_str = f" {idx:<2}" # Space(1) + Number(2) = 3 cells
             
@@ -348,14 +348,14 @@ async def leaderboard(message: types.Message):
             else:
                 name_display = f"  {name}"
             
-            # Truncate or pad name to exactly 17 characters
-            if len(name_display) > 17:
-                name_display = name_display[:14] + "..."
+            # Truncate or pad name to exactly 22 characters
+            if len(name_display) > 22:
+                name_display = name_display[:19] + "..."
             else:
-                name_display = name_display.ljust(17)
+                name_display = name_display.ljust(22)
             
-            # 3. Score column (4 cells wide)
-            score_str = str(row.total).rjust(4)
+            # 3. Score column (3 cells wide)
+            score_str = str(row.total).rjust(3)
             
             # Combine columns with single space separators
             table_lines.append(f"{rank_str} {name_display} {score_str}")
