@@ -345,7 +345,7 @@ async def leaderboard(message: types.Message):
             if len(name_display) > 17:
                 name_display = name_display[:14] + "..."
             
-            # Use medals for top 3
+            # Use medals for top 3, or a space-padded rank for 4+
             if idx == 1:
                 pos = "🥇"
             elif idx == 2:
@@ -353,7 +353,7 @@ async def leaderboard(message: types.Message):
             elif idx == 3:
                 pos = "🥉"
             else:
-                pos = f"{idx:<2}"
+                pos = f" {idx:<2}"
             
             table_lines.append(f"{pos} {name_display:<17} {row.total:>4}")
             
