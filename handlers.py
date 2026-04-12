@@ -327,8 +327,8 @@ async def leaderboard(message: types.Message):
         
         # Build the table lines
         table_lines = []
-        table_lines.append(" #  Игрок                     Очки")
-        table_lines.append("─── ───────────────────────── ────")
+        table_lines.append(" #  Игрок               Очки")
+        table_lines.append("─── ─────────────────── ────")
         
         for idx, row in enumerate(rankings, 1):
             # 1. Rank column (3 cells wide)
@@ -345,8 +345,10 @@ async def leaderboard(message: types.Message):
             name = row.display_name or (f"@{row.username}" if row.username else f"User {row.id}")
             if row.id == message.from_user.id:
                 name_display = f"➤ {name}"
-            else:
+            elif idx in [1, 2, 3]:
                 name_display = f"  {name}"
+            else:
+                name_display = f" {name}"
             
             # Truncate or pad name to exactly 22 characters
             if len(name_display) > 22:
