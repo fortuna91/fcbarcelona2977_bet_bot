@@ -1,5 +1,6 @@
 import datetime
 import logging
+import pytz
 from sqlalchemy import select, func
 from aiogram import Bot
 from football_api import FootballAPI
@@ -11,6 +12,16 @@ import db_utils
 
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler(timezone='UTC')
+
+MSK_TZ = pytz.timezone("Europe/Moscow")
+
+
+def format_match_time_msk(dt: datetime.datetime) -> str:
+    """Converts UTC datetime to Moscow time and formats it."""
+    if dt.tzinfo is None:
+        dt = pytz.utc.localize(dt)
+    msk_dt = dt.astimezone(MSK_TZ)
+    return msk_dt.strftime("%H:%M МСК")
 
 
 async def notify_users(bot: Bot, users, text: str):
@@ -182,7 +193,8 @@ async def daily_match_reminder(bot: Bot):
             # Find users who haven't placed a bet for this match
             users = await db_utils.get_users_without_bet(session, match_obj.id)
             
-            msg = f"⚽ День матча!\nСегодня нас ждет: {match_obj.title}.\nНе забудь сделать прогноз с помощью /bet"
+            time_str = format_match_time_msk(match_obj.start_time)
+            msg = f"⚽ День матча!\nСегодня в {time_str} нас ждет: {match_obj.title}.\nНе забудь сделать прогноз с помощью /bet"
             await notify_users(bot, users, msg)
 
             # Schedule result checking and hourly reminder
@@ -200,7 +212,8 @@ async def hourly_bet_reminder(bot: Bot, match_id: int):
         # Find users who haven't placed a bet for this match
         users = await db_utils.get_users_without_bet(session, match_obj.id)
         
-        msg = f"⏰ Последний шанс!\nБарселона начинает через час {match_obj.title}.\nТы еще успеешь сделать ставку! Используй /bet прямо сейчас."
+        time_str = format_match_time_msk(match_obj.start_time)
+        msg = f"⏰ Последний шанс!\nВ {time_str} Барселона начинает матч {match_obj.title}.\nТы еще успеешь сделать ставку! Используй /bet прямо сейчас."
         await notify_users(bot, users, msg)
 
 

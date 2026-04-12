@@ -8,20 +8,20 @@ def calculate_points(bet_h: int, bet_g: int, actual_h: int, actual_g: int) -> in
     if bet_res == act_res:
         points += 2
         
-    # 2. Exact Home Team Score: 3 points
+    # 2. Exact Home Team Score: 1 point
     if bet_h == actual_h:
-        points += 3
+        points += 1
         
-    # 3. Exact Guest Team Score: 3 points
+    # 3. Exact Guest Team Score: 1 point
     if bet_g == actual_g:
-        points += 3
+        points += 1
         
-    # 4. Exact Goal Difference: 4 points
+    # 4. Exact Goal Difference: 1 point
     if (bet_h - bet_g) == (actual_h - actual_g):
-        points += 4
+        points += 1
         
-    # 5. Exact Total Goals: 4 points
+    # 5. Exact Total Goals: 1 point
     if (bet_h + bet_g) == (actual_h + actual_g):
-        points += 4
+        points += 1
         
     return points

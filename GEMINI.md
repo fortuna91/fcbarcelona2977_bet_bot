@@ -24,14 +24,15 @@ This project is an asynchronous Python-based Telegram bot built with **aiogram**
 ## Scoring System
 Points are awarded cumulatively based on the following rules:
 - **Match Outcome (Win/Draw/Loss)**: +2 points
-- **Exact Home Team Score**: +3 points
-- **Exact Guest Team Score**: +3 points
-- **Exact Goal Difference**: +4 points
-- **Exact Total Goals**: +4 points
+- **Exact Home Team Score**: +1 point
+- **Exact Guest Team Score**: +1 point
+- **Exact Goal Difference**: +1 point
+- **Exact Total Goals**: +1 point
 
 ## Commands
 - `/start`: Register and initialize the bot.
 - `/bet H:G`: Place or update a bet for the next match today (e.g., `/bet 2:1`).
+- `/rules`: View the scoring rules.
 - `/mybets`: View personal betting history and earned points.
 - `/leaderboard`: View the current global rankings.
 - `/deleteme`: Delete your account and bet history.

@@ -2,6 +2,7 @@ import re
 import datetime
 import os
 import logging
+import pytz
 from aiogram import Router, F, types
 from aiogram.filters import CommandStart, Command, CommandObject
 from aiogram.fsm.state import StatesGroup, State
@@ -26,6 +27,16 @@ logger = logging.getLogger(__name__)
 
 # Flexible regex for scores: 2:1, 2 1, 2 : 1, 2-1, etc.
 SCORE_REGEX = r"(\d+)\s*[:\-\s]\s*(\d+)"
+
+MSK_TZ = pytz.timezone("Europe/Moscow")
+
+
+def format_match_time_msk(dt: datetime.datetime) -> str:
+    """Converts UTC datetime to Moscow time and formats it."""
+    if dt.tzinfo is None:
+        dt = pytz.utc.localize(dt)
+    msk_dt = dt.astimezone(MSK_TZ)
+    return msk_dt.strftime("%d.%m.%Y %H:%M МСК")
 
 
 def is_betting_allowed(start_time: datetime.datetime, now: datetime.datetime = None) -> bool:
@@ -57,8 +68,8 @@ def format_match_list(matches):
     """Formats a list of matches for display."""
     response = "📅 **Ближайшие 5 матчей Барселоны:**\n\n"
     for match_obj in matches:
-        date_str = match_obj.start_time.strftime("%d.%m.%Y %H:%M")
-        response += f"⚽ {match_obj.title}\n⏰ {date_str} (UTC)\n\n"
+        date_str = format_match_time_msk(match_obj.start_time)
+        response += f"⚽ {match_obj.title}\n⏰ {date_str}\n\n"
     return response
 
 
@@ -101,15 +112,32 @@ async def help_cmd(message: types.Message):
     logger.info(f"User {message.from_user.id} requested help.")
     help_text = (
         "📖 **FC Barcelona Bet Bot - Команды**\n\n"
-        "/bet H:G — Сделать или обновить прогноз на сегодняшний матч (например, `/bet 2:1` or just `/bet`).\n"
+        "/bet H:G — Сделать или обновить прогноз на сегодняшний матч (например, `/bet 2:1`).\n"
+        "/rules — Посмотреть правила начисления очков.\n"
         "/games — Посмотреть ближайшие 5 матчей Барселоны.\n"
         "/mybets — Посмотреть историю прогнозов и очки.\n"
         "/leaderboard — Посмотреть таблицу лидеров.\n"
         "/deleteme — Удалить аккаунт и всю историю.\n"
         "/help — Показать это сообщение.\n\n"
-        "⚽ *Примечание: Прогнозы принимаются только в дни матчей до начала игры!*"
+        "⚽ *Примечание: Прогнозы принимаются только в дни матчей до начала игры! Время указано московское (МСК).*"
     )
     await message.answer(help_text, parse_mode="Markdown")
+
+
+@router.message(Command("rules"))
+async def rules_cmd(message: types.Message):
+    logger.info(f"User {message.from_user.id} requested rules.")
+    rules_text = (
+        "📜 **Правила начисления очков:**\n\n"
+        "Очки суммируются за каждое попадание:\n"
+        "✅ **Исход матча** (Победа/Ничья/Поражение): **+2 балла**\n"
+        "✅ **Точный счет хозяев**: **+1 балл**\n"
+        "✅ **Точный счет гостей**: **+1 балл**\n"
+        "✅ **Точная разница мячей**: **+1 балл**\n"
+        "✅ **Точное общее количество голов**: **+1 балл**\n\n"
+        "*Максимально за один матч можно получить 6 баллов (при точном угадывании счета).*"
+    )
+    await message.answer(rules_text, parse_mode="Markdown")
 
 
 @router.message(Command("games"))
@@ -146,8 +174,8 @@ async def place_bet(message: types.Message, command: CommandObject, state: FSMCo
             
             msg = "❌ Сегодня нет матчей Барселоны. Прогнозы принимаются только в дни матчей!"
             if next_game:
-                date_str = next_game.start_time.strftime("%d.%m.%Y %H:%M")
-                msg += f"\n\n📅 Следующая игра:\n**{next_game.title}**\n⏰ {date_str} (UTC)"
+                date_str = format_match_time_msk(next_game.start_time)
+                msg += f"\n\n📅 Следующая игра:\n**{next_game.title}**\n⏰ {date_str}"
             
             return await message.answer(msg, parse_mode="Markdown")
 
@@ -181,7 +209,7 @@ async def place_bet(message: types.Message, command: CommandObject, state: FSMCo
             await state.update_data(match_id=match_obj.id)
             await message.answer(
                 f"⚽ Сегодня игра: **{match_obj.title}**\n"
-                f"⏰ Начало: {match_obj.start_time.strftime('%H:%M')} (UTC)\n\n"
+                f"⏰ Начало: {format_match_time_msk(match_obj.start_time)}\n\n"
                 f"Пришли свой прогноз (например, `2:1` или `2 1`):",
                 parse_mode="Markdown"
             )
@@ -292,17 +320,53 @@ async def leaderboard(message: types.Message):
     async with AsyncSessionLocal() as session:
         rankings = await db_utils.get_leaderboard(session)
         
-        response = "🏆 **Таблица лидеров** 🏆\n\n"
+        if not rankings:
+            return await message.answer("🏆 **Таблица лидеров пока пуста.**\nСделай первый прогноз! /bet")
+            
         user_rank, user_points = 0, 0
         
+        # Build the table lines
+        table_lines = []
+        table_lines.append(" #  Игрок             Очки")
+        table_lines.append("─── ───────────────── ────")
+        
         for idx, row in enumerate(rankings, 1):
+            # Formatting name
+            name = row.display_name or (f"@{row.username}" if row.username else f"User {row.id}")
+            
+            # Identify current user
             if row.id == message.from_user.id:
                 user_rank, user_points = idx, row.total
-            name = row.display_name or (f"@{row.username}" if row.username else f"User {row.id}")
-            response += f"{idx}. {name} — {row.total} очк.\n"
+                name_display = f"➤ {name}"
+            else:
+                name_display = f"  {name}"
             
-        header = f"🎖 Ты сейчас на **{user_rank} месте** с **{user_points} очками**!\n\n" if user_rank else ""
-        await message.answer(header + response, parse_mode="Markdown")
+            # Truncate if too long for the table column
+            if len(name_display) > 17:
+                name_display = name_display[:14] + "..."
+            
+            # Use medals for top 3
+            if idx == 1:
+                pos = "🥇"
+            elif idx == 2:
+                pos = "🥈"
+            elif idx == 3:
+                pos = "🥉"
+            else:
+                pos = f"{idx:<2}"
+            
+            table_lines.append(f"{pos} {name_display:<17} {row.total:>4}")
+            
+        header = "🏆 **ТАБЛИЦА ЛИДЕРОВ** 🏆\n\n"
+        footer = ""
+        if user_rank:
+            footer = f"\n\n🎖 Твоё место: **#{user_rank}** (**{user_points}** очк.)"
+        
+        # Wrap the table in a code block for fixed-width alignment
+        table_content = "\n".join(table_lines)
+        response = f"{header}```\n{table_content}\n```\n{footer}"
+        
+        await message.answer(response, parse_mode="Markdown")
 
 
 @router.message(Command("deleteme"))
