@@ -350,11 +350,11 @@ async def leaderboard(message: types.Message):
             else:
                 name_display = f" {name}"
             
-            # Truncate or pad name to exactly 22 characters
-            if len(name_display) > 22:
-                name_display = name_display[:19] + "..."
+            # Truncate or pad name to exactly 20 characters
+            if len(name_display) > 20:
+                name_display = name_display[:17] + "..."
             else:
-                name_display = name_display.ljust(22)
+                name_display = name_display.ljust(20)
             
             # 3. Score column (3 cells wide)
             score_str = str(row.total).rjust(3)
