@@ -331,31 +331,34 @@ async def leaderboard(message: types.Message):
         table_lines.append("─── ───────────────── ────")
         
         for idx, row in enumerate(rankings, 1):
-            # Formatting name
-            name = row.display_name or (f"@{row.username}" if row.username else f"User {row.id}")
+            # 1. Rank column (3 cells wide)
+            if idx == 1:
+                rank_str = "🥇 " # Emoji(2) + Space(1) = 3 cells
+            elif idx == 2:
+                rank_str = "🥈 "
+            elif idx == 3:
+                rank_str = "🥉 "
+            else:
+                rank_str = f" {idx:<2}" # Space(1) + Number(2) = 3 cells
             
-            # Identify current user
+            # 2. Player Name column (17 cells wide)
+            name = row.display_name or (f"@{row.username}" if row.username else f"User {row.id}")
             if row.id == message.from_user.id:
-                user_rank, user_points = idx, row.total
                 name_display = f"➤ {name}"
             else:
                 name_display = f"  {name}"
             
-            # Truncate if too long for the table column
+            # Truncate or pad name to exactly 17 characters
             if len(name_display) > 17:
                 name_display = name_display[:14] + "..."
-            
-            # Use medals for top 3
-            if idx == 1:
-                pos = "🥇"
-            elif idx == 2:
-                pos = "🥈"
-            elif idx == 3:
-                pos = "🥉"
             else:
-                pos = f"{idx:<2}"
+                name_display = name_display.ljust(17)
             
-            table_lines.append(f"{pos} {name_display:<17} {row.total:>4}")
+            # 3. Score column (4 cells wide)
+            score_str = str(row.total).rjust(4)
+            
+            # Combine columns with single space separators
+            table_lines.append(f"{rank_str} {name_display} {score_str}")
             
         header = "🏆 **ТАБЛИЦА ЛИДЕРОВ** 🏆\n\n"
         footer = ""
