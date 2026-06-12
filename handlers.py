@@ -39,6 +39,24 @@ def format_match_time_msk(dt: datetime.datetime) -> str:
     return msk_dt.strftime("%d.%m.%Y %H:%M МСК")
 
 
+def format_match_button_label(match) -> str:
+    """Short label for a match-selection button: '21:00 Home vs Away' in Moscow time."""
+    dt = match.start_time
+    if dt.tzinfo is None:
+        dt = pytz.utc.localize(dt)
+    msk_dt = dt.astimezone(MSK_TZ)
+    return f"{msk_dt.strftime('%H:%M')} {match.title}"
+
+
+def decide_bet_action(open_matches) -> str:
+    """Routes /bet based on how many matches are open today: 'none', 'single', or 'choose'."""
+    if not open_matches:
+        return "none"
+    if len(open_matches) == 1:
+        return "single"
+    return "choose"
+
+
 def is_betting_allowed(start_time: datetime.datetime, now: datetime.datetime = None) -> bool:
     """Checks if betting is allowed (more than 5 minutes before start)."""
     if now is None:
@@ -62,6 +80,15 @@ def get_bet_confirmation_keyboard(match_id, h, g):
             InlineKeyboardButton(text="❌ Нет", callback_data="cancel_bet_change")
         ]
     ])
+
+
+def get_match_choice_keyboard(matches):
+    """Inline keyboard with one button per open match; callback data 'betpick:{match_id}'."""
+    rows = [
+        [InlineKeyboardButton(text=format_match_button_label(m), callback_data=f"betpick:{m.id}")]
+        for m in matches
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def format_match_list(matches):
@@ -165,54 +192,57 @@ async def place_bet(message: types.Message, command: CommandObject, state: FSMCo
     now = datetime.datetime.utcnow()
 
     async with AsyncSessionLocal() as session:
-        # First, check if there is a match TODAY
-        match_obj = await db_utils.get_match_on_day(session, now.date())
+        open_matches = await db_utils.get_open_matches_today(session, now)
+        action = decide_bet_action(open_matches)
 
-        # If no match today, find the NEXT match
-        if not match_obj:
+        if action == "none":
             next_game = await db_utils.get_next_match(session, now)
-            
-            msg = "❌ Сегодня нет матчей Барселоны. Прогнозы принимаются только в дни матчей!"
+            msg = "❌ Сегодня нет матчей. Прогнозы принимаются только в дни матчей!"
             if next_game:
                 date_str = format_match_time_msk(next_game.start_time)
                 msg += f"\n\n📅 Следующая игра:\n**{next_game.title}**\n⏰ {date_str}"
-            
             return await message.answer(msg, parse_mode="Markdown")
 
-        # There is a match today.
-        # Check if betting is allowed (it might be too late or already started).
-        if not is_betting_allowed(match_obj.start_time, now):
-            existing_bet = await db_utils.get_user_bet(session, message.from_user.id, match_obj.id)
-            msg = get_too_late_msg(match_obj, existing_bet)
-            return await message.answer(msg, parse_mode="Markdown")
+        # Parse the optional score argument once.
+        score = parse_score(command.args) if command.args else None
+        if command.args and not score:
+            return await message.answer("❌ Неверный формат. Используйте: `2:1`, `2 1` или `2-1`.")
 
-        if command.args:
-            score = parse_score(command.args)
-            if not score:
-                return await message.answer("❌ Неверный формат. Используйте: `2:1`, `2 1` или `2-1`.")
-            
-            h_score, g_score = score
-            
-            # Check for existing bet
-            existing_bet = await db_utils.get_user_bet(session, message.from_user.id, match_obj.id)
-            
-            if existing_bet:
-                kb = get_bet_confirmation_keyboard(match_obj.id, h_score, g_score)
-                msg = (f"⚠️ У тебя уже сделан прогноз на матч **{match_obj.title}**.\n"
-                       f"Твой прогноз: `{existing_bet.bet_home_score}:{existing_bet.bet_guest_score}`.\n\n"
-                       f"Хочешь изменить его на `{h_score}:{g_score}`?")
-                return await message.answer(msg, reply_markup=kb, parse_mode="Markdown")
-            
-            await save_bet(message, message.from_user.id, session, match_obj, h_score, g_score)
+        if action == "single":
+            await prompt_or_save(message, message.from_user.id, session, open_matches[0], score, state)
+            return
+
+        # action == "choose": multiple open matches today -> show a picker.
+        await state.update_data(pending_score=list(score) if score else None)
+        kb = get_match_choice_keyboard(open_matches)
+        if score:
+            prompt = f"Выбери матч для прогноза `{score[0]}:{score[1]}`:"
         else:
-            await state.set_state(BettingStates.waiting_for_score)
-            await state.update_data(match_id=match_obj.id)
-            await message.answer(
-                f"⚽ Сегодня игра: **{match_obj.title}**\n"
-                f"⏰ Начало: {format_match_time_msk(match_obj.start_time)}\n\n"
-                f"Пришли свой прогноз (например, `2:1` или `2 1`):",
-                parse_mode="Markdown"
-            )
+            prompt = "Выбери матч для прогноза:"
+        await message.answer(prompt, reply_markup=kb, parse_mode="Markdown")
+
+
+@router.callback_query(F.data.startswith("betpick:"))
+async def pick_match(callback: CallbackQuery, state: FSMContext):
+    match_id = int(callback.data.split(":")[1])
+    now = datetime.datetime.utcnow()
+
+    async with AsyncSessionLocal() as session:
+        match_obj = await session.get(Match, match_id)
+        if not match_obj or match_obj.status == 'FT' or not is_betting_allowed(match_obj.start_time, now):
+            await callback.message.edit_text("❌ Этот матч уже закрыт для прогнозов.", reply_markup=None)
+            return await callback.answer()
+
+        data = await state.get_data()
+        pending = data.get("pending_score")
+        score = tuple(pending) if pending else None
+
+        # Remove the picker buttons; clear pending_score (match_id may be set by prompt_or_save).
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await state.update_data(pending_score=None)
+        await prompt_or_save(callback.message, callback.from_user.id, session, match_obj, score, state)
+
+    await callback.answer()
 
 
 @router.message(BettingStates.waiting_for_score)
@@ -276,6 +306,33 @@ async def confirm_bet_change(callback: CallbackQuery, state: FSMContext):
 async def cancel_bet_change(callback: CallbackQuery):
     await callback.message.edit_text("ОК, оставляем как есть.", reply_markup=None)
     await callback.answer()
+
+
+async def prompt_or_save(target_message, user_id, session, match_obj, score, state):
+    """If a score is supplied: save it, or ask to confirm overwriting an existing bet.
+    If no score: store the match in FSM and prompt the user to send a score."""
+    if score is None:
+        await state.set_state(BettingStates.waiting_for_score)
+        await state.update_data(match_id=match_obj.id)
+        await target_message.answer(
+            f"⚽ Матч: **{match_obj.title}**\n"
+            f"⏰ Начало: {format_match_time_msk(match_obj.start_time)}\n\n"
+            f"Пришли свой прогноз (например, `2:1` или `2 1`):",
+            parse_mode="Markdown"
+        )
+        return
+
+    h_score, g_score = score
+    existing_bet = await db_utils.get_user_bet(session, user_id, match_obj.id)
+    if existing_bet:
+        kb = get_bet_confirmation_keyboard(match_obj.id, h_score, g_score)
+        msg = (f"⚠️ У тебя уже сделан прогноз на матч **{match_obj.title}**.\n"
+               f"Твой прогноз: `{existing_bet.bet_home_score}:{existing_bet.bet_guest_score}`.\n\n"
+               f"Хочешь изменить его на `{h_score}:{g_score}`?")
+        await target_message.answer(msg, reply_markup=kb, parse_mode="Markdown")
+        return
+
+    await save_bet(target_message, user_id, session, match_obj, h_score, g_score)
 
 
 async def save_bet(message: types.Message, user_id: int, session, match_obj, h_score, g_score):
