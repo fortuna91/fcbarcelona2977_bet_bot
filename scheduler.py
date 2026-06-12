@@ -180,16 +180,24 @@ async def check_upcoming_jobs(bot: Bot):
 
 
 async def daily_match_reminder(bot: Bot):
-    """At the daily slot: list today's matches, schedule each one's jobs, and notify all users."""
+    """At the daily slot: list matches in the 06:00–06:00 UTC window, schedule jobs, notify all users."""
     logger.info("Checking for daily match reminders...")
     now = datetime.datetime.utcnow()
+    # Use a fixed 06:00→06:00 UTC window so late-night UTC matches are never missed.
+    window_start = now.replace(hour=6, minute=0, second=0, microsecond=0)
+    window_end = window_start + datetime.timedelta(days=1)
     async with AsyncSessionLocal() as session:
-        matches = await db_utils.get_matches_on_day(session, now.date())
+        stmt = (
+            select(Match)
+            .where(Match.start_time >= window_start, Match.start_time < window_end)
+            .order_by(Match.start_time.asc())
+        )
+        matches = (await session.execute(stmt)).scalars().all()
         if not matches:
-            logger.info("No matches today.")
+            logger.info("No matches in today's window.")
             return
 
-        logger.info(f"{len(matches)} match(es) today. Scheduling jobs and notifying users.")
+        logger.info(f"{len(matches)} match(es) in window. Scheduling jobs and notifying users.")
         lines = []
         for match_obj in matches:
             time_str = format_match_time_msk(match_obj.start_time)
