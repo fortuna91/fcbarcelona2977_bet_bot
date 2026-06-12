@@ -16,10 +16,27 @@ async def get_next_match(session, now: datetime.datetime = None):
     return (await session.execute(stmt)).scalars().first()
 
 
-async def get_match_on_day(session, day: datetime.date):
-    """Fetches a match on a specific date."""
+async def get_matches_on_day(session, day: datetime.date):
+    """Fetches all matches on a specific date, ordered by start time."""
     stmt = select(Match).where(func.date(Match.start_time) == day).order_by(Match.start_time.asc())
-    return (await session.execute(stmt)).scalars().first()
+    return (await session.execute(stmt)).scalars().all()
+
+
+async def get_open_matches_today(session, now: datetime.datetime = None):
+    """Fetches today's matches still open for betting (status NS, more than 5 min before kickoff)."""
+    if now is None:
+        now = datetime.datetime.utcnow()
+    cutoff = now + datetime.timedelta(minutes=5)
+    stmt = (
+        select(Match)
+        .where(
+            func.date(Match.start_time) == now.date(),
+            Match.status == 'NS',
+            Match.start_time > cutoff,
+        )
+        .order_by(Match.start_time.asc())
+    )
+    return (await session.execute(stmt)).scalars().all()
 
 
 async def get_upcoming_matches(session, limit=5, now: datetime.datetime = None):
