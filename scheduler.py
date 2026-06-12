@@ -180,25 +180,25 @@ async def check_upcoming_jobs(bot: Bot):
 
 
 async def daily_match_reminder(bot: Bot):
-    """Sends a reminder at 8 AM if there is a match today to users who haven't bet."""
+    """At the daily slot: list today's matches, schedule each one's jobs, and notify all users."""
     logger.info("Checking for daily match reminders...")
     now = datetime.datetime.utcnow()
     async with AsyncSessionLocal() as session:
-        # Find match for today
-        stmt = select(Match).where(func.date(Match.start_time) == now.date())
-        match_obj = (await session.execute(stmt)).scalars().first()
+        matches = await db_utils.get_matches_on_day(session, now.date())
+        if not matches:
+            logger.info("No matches today.")
+            return
 
-        if match_obj:
-            logger.info(f"Match found today: {match_obj.title}. Identifying users who haven't bet.")
-            # Find users who haven't placed a bet for this match
-            users = await db_utils.get_users_without_bet(session, match_obj.id)
-            
+        logger.info(f"{len(matches)} match(es) today. Scheduling jobs and notifying users.")
+        lines = []
+        for match_obj in matches:
             time_str = format_match_time_msk(match_obj.start_time)
-            msg = f"⚽ День матча!\nСегодня в {time_str} нас ждет: {match_obj.title}.\nНе забудь сделать прогноз с помощью /bet"
-            await notify_users(bot, users, msg)
-
-            # Schedule result checking and hourly reminder
+            lines.append(f"⚽ {time_str} — {match_obj.title}")
             await schedule_match_jobs(bot, match_obj)
+
+        text = "📅 Сегодняшние матчи:\n" + "\n".join(lines) + "\n\nНе забудь сделать прогноз с помощью /bet"
+        users = (await session.execute(select(User))).scalars().all()
+        await notify_users(bot, users, text)
 
 
 async def hourly_bet_reminder(bot: Bot, match_id: int):
@@ -213,7 +213,7 @@ async def hourly_bet_reminder(bot: Bot, match_id: int):
         users = await db_utils.get_users_without_bet(session, match_obj.id)
         
         time_str = format_match_time_msk(match_obj.start_time)
-        msg = f"⏰ Последний шанс!\nВ {time_str} Барселона начинает матч {match_obj.title}.\nТы еще успеешь сделать ставку! Используй /bet прямо сейчас."
+        msg = f"⏰ Последний шанс!\nВ {time_str} начинается матч {match_obj.title}.\nТы еще успеешь сделать ставку! Используй /bet прямо сейчас."
         await notify_users(bot, users, msg)
 
 
