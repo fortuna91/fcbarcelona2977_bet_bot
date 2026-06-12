@@ -16,6 +16,8 @@ class FootballAPI:
             "X-Auth-Token": self.api_key
         }
         self.team_id = 81 # FC Barcelona ID in football-data.org
+        # When set (e.g. "WC"), fetch a whole competition instead of one team's matches.
+        self.competition = os.getenv("COMPETITION")
 
     async def _make_request(self, url):
         """Internal helper for API requests with common error handling."""
@@ -31,10 +33,16 @@ class FootballAPI:
                     logger.error(f"Response: {e.response.text}")
                 return None
 
+    def _fixtures_url(self) -> str:
+        """Builds the fixtures URL: a competition's matches if COMPETITION is set, else the team's."""
+        if self.competition:
+            return f"{self.base_url}/competitions/{self.competition}/matches"
+        return f"{self.base_url}/teams/{self.team_id}/matches"
+
     async def get_fixtures(self):
-        """Fetch all FC Barcelona matches for the current season."""
-        url = f"{self.base_url}/teams/{self.team_id}/matches"
-        logger.info(f"Requesting matches for team {self.team_id} from football-data.org...")
+        """Fetch all matches for the configured competition (or FC Barcelona by default)."""
+        url = self._fixtures_url()
+        logger.info(f"Requesting fixtures from {url}")
         data = await self._make_request(url)
         if data:
             results = data.get('matches', [])
