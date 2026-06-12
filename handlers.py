@@ -106,7 +106,7 @@ def format_match_list(matches):
     response = "📅 **Ближайшие матчи:**\n\n"
     for match_obj in matches:
         date_str = format_match_time_msk(match_obj.start_time)
-        response += f"⚽ {match_obj.title}\n⏰ {date_str}\n\n"
+        response += f"{match_obj.title}\n⏰ {date_str}\n\n"
     return response
 
 
