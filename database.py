@@ -11,7 +11,9 @@ logger = logging.getLogger(__name__)
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 engine = create_async_engine(DATABASE_URL, echo=False)
-AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+AsyncSessionLocal = async_sessionmaker(
+    engine, expire_on_commit=False, class_=AsyncSession
+)
 
 
 async def init_db():
@@ -23,7 +25,17 @@ async def init_db():
             # Create tables
             await conn.run_sync(Base.metadata.create_all)
             logger.info("SQLAlchemy metadata creation executed.")
-        
+            # Migration: add competition column to existing DBs that predate this column.
+            try:
+                await conn.execute(
+                    text(
+                        "ALTER TABLE matches ADD COLUMN competition VARCHAR DEFAULT 'FCB'"
+                    )
+                )
+                logger.info("Migration: added competition column to matches.")
+            except Exception:
+                pass  # Column already exists
+
         # Dispose and recreate engine to ensure all changes are flushed
         # (Sometimes necessary for certain PostgreSQL setups)
         await engine.dispose()
