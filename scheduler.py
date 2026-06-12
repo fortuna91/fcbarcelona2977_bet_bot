@@ -4,6 +4,7 @@ import pytz
 from sqlalchemy import select, func
 from aiogram import Bot
 from football_api import FootballAPI
+from flags import flagged
 from models import Match, User, Bet
 from points_calculator import calculate_points
 from database import AsyncSessionLocal
@@ -48,7 +49,7 @@ async def sync_matches():
 
                 home_name = item["homeTeam"]["shortName"] or item["homeTeam"]["name"]
                 away_name = item["awayTeam"]["shortName"] or item["awayTeam"]["name"]
-                title = f"{home_name} vs {away_name}"
+                title = flagged(f"{home_name} vs {away_name}")
 
                 # football-data.org status: FINISHED, SCHEDULED, TIMED, IN_PLAY, PAUSED, POSTPONED, CANCELLED
                 # Map them to simplified statuses: FT or NS
@@ -67,6 +68,7 @@ async def sync_matches():
                     )
                     session.add(match_obj)
                 else:
+                    match_obj.title = title
                     match_obj.status = status
                     match_obj.start_time = dt
                     match_obj.competition = competition
