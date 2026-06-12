@@ -31,14 +31,19 @@ async def get_matches_on_day(session, day: datetime.date):
 
 
 async def get_open_matches_today(session, now: datetime.datetime = None):
-    """Fetches today's matches still open for betting (status NS, more than 5 min before kickoff)."""
+    """Fetches matches in the current 06:00–06:00 UTC window that are still open for betting."""
     if now is None:
         now = datetime.datetime.utcnow()
     cutoff = now + datetime.timedelta(minutes=5)
+    # Rolling 06:00→06:00 UTC window: before today's 06:00 we're still in yesterday's window.
+    today_6am = now.replace(hour=6, minute=0, second=0, microsecond=0)
+    window_start = today_6am if now >= today_6am else today_6am - datetime.timedelta(days=1)
+    window_end = window_start + datetime.timedelta(days=1)
     stmt = (
         select(Match)
         .where(
-            func.date(Match.start_time) == now.date(),
+            Match.start_time >= window_start,
+            Match.start_time < window_end,
             Match.status == "NS",
             Match.start_time > cutoff,
         )
