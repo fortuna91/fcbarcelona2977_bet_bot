@@ -93,7 +93,7 @@ def get_match_choice_keyboard(matches):
 
 def format_match_list(matches):
     """Formats a list of matches for display."""
-    response = "📅 **Ближайшие 5 матчей Барселоны:**\n\n"
+    response = "📅 **Ближайшие матчи:**\n\n"
     for match_obj in matches:
         date_str = format_match_time_msk(match_obj.start_time)
         response += f"⚽ {match_obj.title}\n⏰ {date_str}\n\n"
@@ -126,7 +126,7 @@ async def start_cmd(message: types.Message):
             session.add(user)
             await session.commit()
             logger.info(f"New user registered: {message.from_user.id} ({full_name})")
-            await message.answer(f"🔵🔴 Добро пожаловать, {full_name}, в Club2977 Score Bot! Тут мы пытаемся угадать счет матчей Барселоны! Используйте /help для просмотра команд.")
+            await message.answer(f"👋 Добро пожаловать, {full_name}, в Score Bot! Тут мы угадываем счёт матчей. Используйте /help для просмотра команд.")
         else:
             # Update name if changed
             user.display_name = full_name
@@ -138,10 +138,10 @@ async def start_cmd(message: types.Message):
 async def help_cmd(message: types.Message):
     logger.info(f"User {message.from_user.id} requested help.")
     help_text = (
-        "📖 **FC Barcelona Bet Bot - Команды**\n\n"
+        "📖 **Bet Bot — Команды**\n\n"
         "/bet H:G — Сделать или обновить прогноз на сегодняшний матч (например, `/bet 2:1`).\n"
         "/rules — Посмотреть правила начисления очков.\n"
-        "/games — Посмотреть ближайшие 5 матчей Барселоны.\n"
+        "/games — Посмотреть ближайшие матчи.\n"
         "/mybets — Посмотреть историю прогнозов и очки.\n"
         "/leaderboard — Посмотреть таблицу лидеров.\n"
         "/deleteme — Удалить аккаунт и всю историю.\n"
