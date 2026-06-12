@@ -10,7 +10,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configure logging to both file and console
-log_formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+log_formatter = logging.Formatter(
+    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
@@ -28,20 +30,21 @@ logger.addHandler(console_handler)
 async def main():
     logger.info("Initializing database...")
     await init_db()
-    
+
     logger.info("Setting up Bot...")
     bot = Bot(token=os.getenv("BOT_TOKEN"))
     dp = Dispatcher()
     dp.include_router(router)
-    
+
     logger.info("Setting up Scheduler...")
     setup_scheduler(bot)
-    
+
     #  logger.info("Initial match synchronization...")
     # await sync_matches()
-    
+
     logger.info("Bot is starting...")
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -57,7 +57,9 @@ def decide_bet_action(open_matches) -> str:
     return "choose"
 
 
-def is_betting_allowed(start_time: datetime.datetime, now: datetime.datetime = None) -> bool:
+def is_betting_allowed(
+    start_time: datetime.datetime, now: datetime.datetime = None
+) -> bool:
     """Checks if betting is allowed (more than 5 minutes before start)."""
     if now is None:
         now = datetime.datetime.utcnow()
@@ -74,18 +76,26 @@ def parse_score(text: str):
 
 def get_bet_confirmation_keyboard(match_id, h, g):
     """Returns an inline keyboard for bet confirmation."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="✅ Да", callback_data=f"confirm_bet_change:{match_id}:{h}:{g}"),
-            InlineKeyboardButton(text="❌ Нет", callback_data="cancel_bet_change")
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Да", callback_data=f"confirm_bet_change:{match_id}:{h}:{g}"
+                ),
+                InlineKeyboardButton(text="❌ Нет", callback_data="cancel_bet_change"),
+            ]
         ]
-    ])
+    )
 
 
 def get_match_choice_keyboard(matches):
     """Inline keyboard with one button per open match; callback data 'betpick:{match_id}'."""
     rows = [
-        [InlineKeyboardButton(text=format_match_button_label(m), callback_data=f"betpick:{m.id}")]
+        [
+            InlineKeyboardButton(
+                text=format_match_button_label(m), callback_data=f"betpick:{m.id}"
+            )
+        ]
         for m in matches
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -104,11 +114,15 @@ def get_too_late_msg(match_obj: Match, existing_bet: Bet = None) -> str:
     """Returns a 'too late' message for the given match and optional existing bet."""
     if existing_bet:
         h, g = existing_bet.bet_home_score, existing_bet.bet_guest_score
-        return (f"❌ Слишком поздно менять прогноз на матч **{match_obj.title}**! "
-                f"Матч начинается менее чем через 5 минут или уже идет.\n"
-                f"Твой прогноз: `{h}:{g}`.")
-    return (f"❌ Слишком поздно для прогноза на матч **{match_obj.title}**! "
-            f"Матч начинается менее чем через 5 минут или уже идет.")
+        return (
+            f"❌ Слишком поздно менять прогноз на матч **{match_obj.title}**! "
+            f"Матч начинается менее чем через 5 минут или уже идет.\n"
+            f"Твой прогноз: `{h}:{g}`."
+        )
+    return (
+        f"❌ Слишком поздно для прогноза на матч **{match_obj.title}**! "
+        f"Матч начинается менее чем через 5 минут или уже идет."
+    )
 
 
 @router.message(CommandStart())
@@ -119,19 +133,23 @@ async def start_cmd(message: types.Message):
         user = await db_utils.get_user(session, message.from_user.id)
         if not user:
             user = User(
-                id=message.from_user.id, 
+                id=message.from_user.id,
                 username=message.from_user.username,
-                display_name=full_name
+                display_name=full_name,
             )
             session.add(user)
             await session.commit()
             logger.info(f"New user registered: {message.from_user.id} ({full_name})")
-            await message.answer(f"👋 Добро пожаловать, {full_name}, в Score Bot! Тут мы угадываем счёт матчей. Используйте /help для просмотра команд.")
+            await message.answer(
+                f"👋 Добро пожаловать, {full_name}, в Score Bot! Тут мы угадываем счёт матчей. Используйте /help для просмотра команд."
+            )
         else:
             # Update name if changed
             user.display_name = full_name
             await session.commit()
-            await message.answer(f"С возвращением, {full_name}! Готовы к следующей игре?")
+            await message.answer(
+                f"С возвращением, {full_name}! Готовы к следующей игре?"
+            )
 
 
 @router.message(Command("help"))
@@ -181,7 +199,9 @@ async def games_cmd(message: types.Message):
             db_matches = await db_utils.get_upcoming_matches(session, limit=5, now=now)
 
     if not db_matches:
-        return await message.answer("К сожалению, информации о ближайших матчах пока нет.")
+        return await message.answer(
+            "К сожалению, информации о ближайших матчах пока нет."
+        )
 
     await message.answer(format_match_list(db_matches), parse_mode="Markdown")
 
@@ -206,10 +226,14 @@ async def place_bet(message: types.Message, command: CommandObject, state: FSMCo
         # Parse the optional score argument once.
         score = parse_score(command.args) if command.args else None
         if command.args and not score:
-            return await message.answer("❌ Неверный формат. Используйте: `2:1`, `2 1` или `2-1`.")
+            return await message.answer(
+                "❌ Неверный формат. Используйте: `2:1`, `2 1` или `2-1`."
+            )
 
         if action == "single":
-            await prompt_or_save(message, message.from_user.id, session, open_matches[0], score, state)
+            await prompt_or_save(
+                message, message.from_user.id, session, open_matches[0], score, state
+            )
             return
 
         # action == "choose": multiple open matches today -> show a picker.
@@ -229,8 +253,14 @@ async def pick_match(callback: CallbackQuery, state: FSMContext):
 
     async with AsyncSessionLocal() as session:
         match_obj = await session.get(Match, match_id)
-        if not match_obj or match_obj.status == 'FT' or not is_betting_allowed(match_obj.start_time, now):
-            await callback.message.edit_text("❌ Этот матч уже закрыт для прогнозов.", reply_markup=None)
+        if (
+            not match_obj
+            or match_obj.status == "FT"
+            or not is_betting_allowed(match_obj.start_time, now)
+        ):
+            await callback.message.edit_text(
+                "❌ Этот матч уже закрыт для прогнозов.", reply_markup=None
+            )
             return await callback.answer()
 
         data = await state.get_data()
@@ -240,7 +270,9 @@ async def pick_match(callback: CallbackQuery, state: FSMContext):
         # Remove the picker buttons; clear pending_score (match_id may be set by prompt_or_save).
         await callback.message.edit_reply_markup(reply_markup=None)
         await state.update_data(pending_score=None)
-        await prompt_or_save(callback.message, callback.from_user.id, session, match_obj, score, state)
+        await prompt_or_save(
+            callback.message, callback.from_user.id, session, match_obj, score, state
+        )
 
     await callback.answer()
 
@@ -249,7 +281,9 @@ async def pick_match(callback: CallbackQuery, state: FSMContext):
 async def process_bet_score(message: types.Message, state: FSMContext):
     score = parse_score(message.text)
     if not score:
-        return await message.answer("❌ Неверный формат. Пожалуйста, введите счет в формате `2:1` или `2 1`.")
+        return await message.answer(
+            "❌ Неверный формат. Пожалуйста, введите счет в формате `2:1` или `2 1`."
+        )
 
     h_score, g_score = score
     data = await state.get_data()
@@ -257,29 +291,41 @@ async def process_bet_score(message: types.Message, state: FSMContext):
 
     async with AsyncSessionLocal() as session:
         match_obj = await session.get(Match, match_id)
-        if not match_obj or match_obj.status == 'FT' or not is_betting_allowed(match_obj.start_time):
+        if (
+            not match_obj
+            or match_obj.status == "FT"
+            or not is_betting_allowed(match_obj.start_time)
+        ):
             await state.clear()
             if match_obj:
-                existing_bet = await db_utils.get_user_bet(session, message.from_user.id, match_obj.id)
+                existing_bet = await db_utils.get_user_bet(
+                    session, message.from_user.id, match_obj.id
+                )
                 msg = get_too_late_msg(match_obj, existing_bet)
             else:
                 msg = "❌ Извини, время для прогноза на этот матч истекло."
-            
+
             return await message.answer(msg, parse_mode="Markdown")
 
         # Check if user already has a bet for this match
-        existing_bet = await db_utils.get_user_bet(session, message.from_user.id, match_obj.id)
+        existing_bet = await db_utils.get_user_bet(
+            session, message.from_user.id, match_obj.id
+        )
 
         if existing_bet:
             kb = get_bet_confirmation_keyboard(match_obj.id, h_score, g_score)
-            msg = (f"⚠️ У тебя уже сделан прогноз на этот матч **{match_obj.title}**.\n"
-                   f"Твой прогноз: `{existing_bet.bet_home_score}:{existing_bet.bet_guest_score}`.\n\n"
-                   f"Хочешь изменить его на `{h_score}:{g_score}`?")
+            msg = (
+                f"⚠️ У тебя уже сделан прогноз на этот матч **{match_obj.title}**.\n"
+                f"Твой прогноз: `{existing_bet.bet_home_score}:{existing_bet.bet_guest_score}`.\n\n"
+                f"Хочешь изменить его на `{h_score}:{g_score}`?"
+            )
             await state.clear()
             return await message.answer(msg, reply_markup=kb, parse_mode="Markdown")
 
-        await save_bet(message, message.from_user.id, session, match_obj, h_score, g_score)
-    
+        await save_bet(
+            message, message.from_user.id, session, match_obj, h_score, g_score
+        )
+
     await state.clear()
 
 
@@ -289,15 +335,24 @@ async def confirm_bet_change(callback: CallbackQuery, state: FSMContext):
     match_id = int(parts[1])
     h_score = int(parts[2])
     g_score = int(parts[3])
-    
+
     async with AsyncSessionLocal() as session:
         match_obj = await session.get(Match, match_id)
         if not match_obj or not is_betting_allowed(match_obj.start_time):
-            await callback.message.edit_text("❌ Извини, время для изменения прогноза истекло.", reply_markup=None)
+            await callback.message.edit_text(
+                "❌ Извини, время для изменения прогноза истекло.", reply_markup=None
+            )
             return await callback.answer()
-            
-        await save_bet(callback.message, callback.from_user.id, session, match_obj, h_score, g_score)
-    
+
+        await save_bet(
+            callback.message,
+            callback.from_user.id,
+            session,
+            match_obj,
+            h_score,
+            g_score,
+        )
+
     await callback.message.delete()
     await callback.answer()
 
@@ -318,7 +373,7 @@ async def prompt_or_save(target_message, user_id, session, match_obj, score, sta
             f"⚽ Матч: **{match_obj.title}**\n"
             f"⏰ Начало: {format_match_time_msk(match_obj.start_time)}\n\n"
             f"Пришли свой прогноз (например, `2:1` или `2 1`):",
-            parse_mode="Markdown"
+            parse_mode="Markdown",
         )
         return
 
@@ -326,28 +381,47 @@ async def prompt_or_save(target_message, user_id, session, match_obj, score, sta
     existing_bet = await db_utils.get_user_bet(session, user_id, match_obj.id)
     if existing_bet:
         kb = get_bet_confirmation_keyboard(match_obj.id, h_score, g_score)
-        msg = (f"⚠️ У тебя уже сделан прогноз на матч **{match_obj.title}**.\n"
-               f"Твой прогноз: `{existing_bet.bet_home_score}:{existing_bet.bet_guest_score}`.\n\n"
-               f"Хочешь изменить его на `{h_score}:{g_score}`?")
+        msg = (
+            f"⚠️ У тебя уже сделан прогноз на матч **{match_obj.title}**.\n"
+            f"Твой прогноз: `{existing_bet.bet_home_score}:{existing_bet.bet_guest_score}`.\n\n"
+            f"Хочешь изменить его на `{h_score}:{g_score}`?"
+        )
         await target_message.answer(msg, reply_markup=kb, parse_mode="Markdown")
         return
 
     await save_bet(target_message, user_id, session, match_obj, h_score, g_score)
 
 
-async def save_bet(message: types.Message, user_id: int, session, match_obj, h_score, g_score):
+async def save_bet(
+    message: types.Message, user_id: int, session, match_obj, h_score, g_score
+):
     stmt_bet = select(Bet).where(Bet.user_id == user_id, Bet.match_id == match_obj.id)
     bet = (await session.execute(stmt_bet)).scalar_one_or_none()
-    
+
     if bet:
         bet.bet_home_score, bet.bet_guest_score = h_score, g_score
-        text = f"✅ Прогноз обновлен на матч **{match_obj.title}**: `{h_score}:{g_score}`."
-        logger.info(f"User {user_id} updated bet for match {match_obj.id} to {h_score}:{g_score}.")
+        text = (
+            f"✅ Прогноз обновлен на матч **{match_obj.title}**: `{h_score}:{g_score}`."
+        )
+        logger.info(
+            f"User {user_id} updated bet for match {match_obj.id} to {h_score}:{g_score}."
+        )
     else:
-        session.add(Bet(user_id=user_id, match_id=match_obj.id, bet_home_score=h_score, bet_guest_score=g_score))
-        text = f"✅ Прогноз принят на матч **{match_obj.title}**: `{h_score}:{g_score}`!"
-        logger.info(f"User {user_id} placed new bet for match {match_obj.id}: {h_score}:{g_score}.")
-        
+        session.add(
+            Bet(
+                user_id=user_id,
+                match_id=match_obj.id,
+                bet_home_score=h_score,
+                bet_guest_score=g_score,
+            )
+        )
+        text = (
+            f"✅ Прогноз принят на матч **{match_obj.title}**: `{h_score}:{g_score}`!"
+        )
+        logger.info(
+            f"User {user_id} placed new bet for match {match_obj.id}: {h_score}:{g_score}."
+        )
+
     await session.commit()
     await message.answer(text, parse_mode="Markdown")
 
@@ -356,18 +430,26 @@ async def save_bet(message: types.Message, user_id: int, session, match_obj, h_s
 async def my_bets(message: types.Message):
     logger.info(f"User {message.from_user.id} requested their betting history.")
     async with AsyncSessionLocal() as session:
-        stmt = select(Bet).options(selectinload(Bet.match)).where(Bet.user_id == message.from_user.id)
+        stmt = (
+            select(Bet)
+            .options(selectinload(Bet.match))
+            .where(Bet.user_id == message.from_user.id)
+        )
         bets = (await session.execute(stmt)).scalars().all()
-        
+
         if not bets:
             return await message.answer("У тебя еще нет ни одного прогноза.")
-            
+
         response = "📊 **Твоя история прогнозов:**\n\n"
         for bet in bets:
             m = bet.match
-            res = f"{m.actual_home_score}:{m.actual_guest_score}" if m.status == 'FT' else "Ожидается"
+            res = (
+                f"{m.actual_home_score}:{m.actual_guest_score}"
+                if m.status == "FT"
+                else "Ожидается"
+            )
             response += f"🔹 {m.title}\nПрогноз: {bet.bet_home_score}:{bet.bet_guest_score} | Результат: {res} | Очки: {bet.points_earned}\n\n"
-            
+
         await message.answer(response, parse_mode="Markdown")
 
 
@@ -376,60 +458,64 @@ async def leaderboard(message: types.Message):
     logger.info(f"User {message.from_user.id} requested the leaderboard.")
     async with AsyncSessionLocal() as session:
         rankings = await db_utils.get_leaderboard(session)
-        
+
         if not rankings:
-            return await message.answer("🏆 **Таблица лидеров пока пуста.**\nСделай первый прогноз! /bet")
-            
+            return await message.answer(
+                "🏆 **Таблица лидеров пока пуста.**\nСделай первый прогноз! /bet"
+            )
+
         user_rank, user_points = 0, 0
-        
+
         # Build the table lines
         table_lines = []
         table_lines.append(" #  Игрок                Очки")
         table_lines.append("─── ──────────────────── ────")
-        
+
         for idx, row in enumerate(rankings, 1):
             # 1. Rank column (3 cells wide)
             if idx == 1:
-                rank_str = "🥇" # Emoji(2) + Space(1) = 3 cells
+                rank_str = "🥇"  # Emoji(2) + Space(1) = 3 cells
             elif idx == 2:
                 rank_str = "🥈"
             elif idx == 3:
                 rank_str = "🥉"
             else:
-                rank_str = f" {idx:<2}" # Space(1) + Number(2) = 3 cells
-            
+                rank_str = f" {idx:<2}"  # Space(1) + Number(2) = 3 cells
+
             # 2. Player Name column (17 cells wide)
-            name = row.display_name or (f"@{row.username}" if row.username else f"User {row.id}")
+            name = row.display_name or (
+                f"@{row.username}" if row.username else f"User {row.id}"
+            )
             if row.id == message.from_user.id:
                 name_display = f"➤ {name}"
             elif idx in [1, 2, 3]:
                 name_display = f"  {name}"
             else:
                 name_display = f" {name}"
-            
+
             # Truncate or pad name to exactly characters
             chars = 20 if idx in [1, 2, 3] else 19
 
             if len(name_display) > chars:
-                name_display = name_display[:(chars-3)] + "..."
+                name_display = name_display[: (chars - 3)] + "..."
             else:
                 name_display = name_display.ljust(chars)
-            
+
             # 3. Score column (3 cells wide)
             score_str = str(row.total).rjust(3)
-            
+
             # Combine columns with single space separators
             table_lines.append(f"{rank_str} {name_display} {score_str}")
-            
+
         header = "🏆 **ТАБЛИЦА ЛИДЕРОВ** 🏆\n\n"
         footer = ""
         if user_rank:
             footer = f"\n\n🎖 Твоё место: **#{user_rank}** (**{user_points}** очк.)"
-        
+
         # Wrap the table in a code block for fixed-width alignment
         table_content = "\n".join(table_lines)
         response = f"{header}```\n{table_content}\n```\n{footer}"
-        
+
         await message.answer(response, parse_mode="Markdown")
 
 
@@ -450,9 +536,11 @@ async def delete_me(message: types.Message):
 @router.message(Command("reset_all_scores"))
 async def reset_scores(message: types.Message):
     if message.from_user.id != ADMIN_ID:
-        logger.warning(f"User {message.from_user.id} attempted to reset all scores but is not an admin.")
+        logger.warning(
+            f"User {message.from_user.id} attempted to reset all scores but is not an admin."
+        )
         return await message.answer("🚫 Только для администратора.")
-    
+
     logger.warning(f"ADMIN {message.from_user.id} IS RESETTING ALL SCORES.")
     async with AsyncSessionLocal() as session:
         await session.execute(delete(Bet))

@@ -12,10 +12,8 @@ class FootballAPI:
         # We use the same env variable name but now it expects a football-data.org token
         self.api_key = os.getenv("FOOTBALL_API_KEY")
         self.base_url = "https://api.football-data.org/v4"
-        self.headers = {
-            "X-Auth-Token": self.api_key
-        }
-        self.team_id = 81 # FC Barcelona ID in football-data.org
+        self.headers = {"X-Auth-Token": self.api_key}
+        self.team_id = 81  # FC Barcelona ID in football-data.org
         # When set (e.g. "WC"), fetch a whole competition instead of one team's matches.
         self.competition = os.getenv("COMPETITION")
 
@@ -29,7 +27,7 @@ class FootballAPI:
                 return response.json()
             except Exception as e:
                 logger.error(f"Failed to fetch data from {url}: {e}")
-                if hasattr(e, 'response') and e.response:
+                if hasattr(e, "response") and e.response:
                     logger.error(f"Response: {e.response.text}")
                 return None
 
@@ -45,7 +43,7 @@ class FootballAPI:
         logger.info(f"Requesting fixtures from {url}")
         data = await self._make_request(url)
         if data:
-            results = data.get('matches', [])
+            results = data.get("matches", [])
             logger.info(f"Successfully fetched {len(results)} matches.")
             return results
         return []

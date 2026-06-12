@@ -10,4 +10,7 @@ def test_fixtures_url_team_mode(monkeypatch):
 def test_fixtures_url_competition_mode(monkeypatch):
     monkeypatch.setenv("COMPETITION", "WC")
     api = FootballAPI()
-    assert api._fixtures_url() == "https://api.football-data.org/v4/competitions/WC/matches"
+    assert (
+        api._fixtures_url()
+        == "https://api.football-data.org/v4/competitions/WC/matches"
+    )
