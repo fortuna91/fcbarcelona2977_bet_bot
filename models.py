@@ -32,6 +32,7 @@ class Match(Base):
     actual_home_score = Column(Integer, nullable=True)
     actual_guest_score = Column(Integer, nullable=True)
     status = Column(String, default="NS")  # NS: Not Started, FT: Finished
+    competition = Column(String, default="FCB")  # e.g. "FCB" or "WC"
 
     bets = relationship("Bet", back_populates="match", cascade="all, delete-orphan")
 

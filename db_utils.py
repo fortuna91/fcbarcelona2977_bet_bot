@@ -73,8 +73,8 @@ async def get_users_without_bet(session, match_id):
     return (await session.execute(stmt)).scalars().all()
 
 
-async def get_leaderboard(session):
-    """Fetches the global leaderboard rankings."""
+async def get_leaderboard(session, competition: str = None):
+    """Fetches leaderboard rankings, optionally filtered to a single competition."""
     stmt = (
         select(
             User.display_name,
@@ -83,7 +83,9 @@ async def get_leaderboard(session):
             func.sum(Bet.points_earned).label("total"),
         )
         .join(Bet)
-        .group_by(User.id)
-        .order_by(desc("total"))
+        .join(Match, Bet.match_id == Match.id)
     )
+    if competition:
+        stmt = stmt.where(Match.competition == competition)
+    stmt = stmt.group_by(User.id).order_by(desc("total"))
     return (await session.execute(stmt)).all()

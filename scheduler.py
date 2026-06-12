@@ -55,15 +55,18 @@ async def sync_matches():
                 raw_status = item["status"]
                 status = "FT" if raw_status == "FINISHED" else "NS"
 
+                competition = api.competition or "FCB"
                 match_obj = await session.get(Match, f_id)
                 if not match_obj:
                     match_obj = Match(
-                        id=f_id, title=title, start_time=dt, status=status
+                        id=f_id, title=title, start_time=dt, status=status,
+                        competition=competition,
                     )
                     session.add(match_obj)
                 else:
                     match_obj.status = status
                     match_obj.start_time = dt
+                    match_obj.competition = competition
 
                 # If finished, update actual scores too
                 if status == "FT":
