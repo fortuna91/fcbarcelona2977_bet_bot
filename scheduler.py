@@ -59,7 +59,10 @@ async def sync_matches():
                 match_obj = await session.get(Match, f_id)
                 if not match_obj:
                     match_obj = Match(
-                        id=f_id, title=title, start_time=dt, status=status,
+                        id=f_id,
+                        title=title,
+                        start_time=dt,
+                        status=status,
                         competition=competition,
                     )
                     session.add(match_obj)

@@ -28,7 +28,9 @@ async def init_db():
             # Migration: add competition column to existing DBs that predate this column.
             try:
                 await conn.execute(
-                    text("ALTER TABLE matches ADD COLUMN competition VARCHAR DEFAULT 'FCB'")
+                    text(
+                        "ALTER TABLE matches ADD COLUMN competition VARCHAR DEFAULT 'FCB'"
+                    )
                 )
                 logger.info("Migration: added competition column to matches.")
             except Exception:

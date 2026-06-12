@@ -457,7 +457,9 @@ async def my_bets(message: types.Message):
 async def leaderboard(message: types.Message):
     logger.info(f"User {message.from_user.id} requested the leaderboard.")
     async with AsyncSessionLocal() as session:
-        rankings = await db_utils.get_leaderboard(session, competition=os.getenv("COMPETITION"))
+        rankings = await db_utils.get_leaderboard(
+            session, competition=os.getenv("COMPETITION")
+        )
 
         if not rankings:
             return await message.answer(
