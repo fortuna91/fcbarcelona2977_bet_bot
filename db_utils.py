@@ -37,7 +37,9 @@ async def get_open_matches_today(session, now: datetime.datetime = None):
     cutoff = now + datetime.timedelta(minutes=5)
     # Rolling 06:00→06:00 UTC window: before today's 06:00 we're still in yesterday's window.
     today_6am = now.replace(hour=6, minute=0, second=0, microsecond=0)
-    window_start = today_6am if now >= today_6am else today_6am - datetime.timedelta(days=1)
+    window_start = (
+        today_6am if now >= today_6am else today_6am - datetime.timedelta(days=1)
+    )
     window_end = window_start + datetime.timedelta(days=1)
     stmt = (
         select(Match)
