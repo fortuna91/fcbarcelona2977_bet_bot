@@ -18,7 +18,7 @@ docker compose up --build         # run containerized
 
 `.env` is required (loaded via python-dotenv): `BOT_TOKEN`, `FOOTBALL_API_KEY`, `DATABASE_URL` (e.g. `sqlite+aiosqlite:///bot.db`), `ADMIN_ID`. Optional: `COMPETITION` (e.g. `WC`) — when set, the bot fetches that football-data.org competition's matches instead of FC Barcelona's; remove the line to revert to Barça.
 
-Note on tests: `tests/test_points.py` and `tests/test_bet_logic.py` are real pytest unit tests (pure-logic, no DB). `tests/test_logic.py` is NOT a pytest test — it's a manual `asyncio.run` script that queries a live DB and will fail/error under pytest collection if no DB is configured.
+Note on tests: `tests/test_points.py`, `tests/test_bet_logic.py`, `tests/test_bet_helpers.py`, and `tests/test_football_api.py` are real pytest unit tests (pure-logic, no DB). `tests/test_logic.py` is NOT a pytest test — it's a manual `asyncio.run` script that queries a live DB and will fail/error under pytest collection if no DB is configured.
 
 ## Architecture
 
@@ -29,6 +29,8 @@ Three layers, all async:
 - **`scheduler.py`** — APScheduler (`AsyncIOScheduler`, UTC) background jobs.
 
 Data access is split: `db_utils.py` holds reusable read queries; `database.py` owns the engine + `AsyncSessionLocal`; `models.py` defines `User`/`Match`/`Bet` (SQLAlchemy, cascade deletes). Schema is created via `Base.metadata.create_all` on startup — **there are no migrations**, so model changes won't alter existing tables.
+
+`flags.py` maps football-data.org team names → flag emojis. `flagged(title)` is the public API — it takes a `"Home vs Away"` string and returns it with flag emojis prepended to each team name. The internal `_FLAGS` dict covers all WC 2026 nations; subdivision flags (England, Scotland, Wales) use Unicode tag sequences since they have no ISO alpha-2 code.
 
 ### External data: football-data.org
 

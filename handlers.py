@@ -429,11 +429,15 @@ async def save_bet(
 @router.message(Command("mybets"))
 async def my_bets(message: types.Message):
     logger.info(f"User {message.from_user.id} requested their betting history.")
+    competition = os.getenv("COMPETITION", "FCB")
     async with AsyncSessionLocal() as session:
         stmt = (
             select(Bet)
+            .join(Match, Bet.match_id == Match.id)
             .options(selectinload(Bet.match))
-            .where(Bet.user_id == message.from_user.id)
+            .where(
+                Bet.user_id == message.from_user.id, Match.competition == competition
+            )
         )
         bets = (await session.execute(stmt)).scalars().all()
 

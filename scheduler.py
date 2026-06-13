@@ -123,17 +123,21 @@ async def check_results_and_notify(bot: Bot, match_id: int):
                 )
 
             await session.flush()
+            comp = match_obj.competition
             for bet in bets:
-                total_stmt = select(func.sum(Bet.points_earned)).where(
-                    Bet.user_id == bet.user_id
+                total_stmt = (
+                    select(func.sum(Bet.points_earned))
+                    .join(Match, Bet.match_id == Match.id)
+                    .where(Bet.user_id == bet.user_id, Match.competition == comp)
                 )
                 total = (await session.execute(total_stmt)).scalar() or 0
 
-                # Simple rank calculation: count users with more points
                 rank_stmt = (
                     select(func.count(User.id))
                     .select_from(User)
                     .join(Bet)
+                    .join(Match, Bet.match_id == Match.id)
+                    .where(Match.competition == comp)
                     .group_by(User.id)
                     .having(func.sum(Bet.points_earned) > total)
                 )
@@ -240,13 +244,13 @@ async def daily_match_reminder(bot: Bot):
         lines = []
         for match_obj in matches:
             time_str = format_match_time_msk(match_obj.start_time)
-            lines.append(f"⚽ {time_str} — {match_obj.title}")
+            lines.append(f"{time_str} — {match_obj.title}")
             await schedule_match_jobs(bot, match_obj)
 
         text = (
-            "📅 Сегодняшние матчи:\n"
+            "📅 Ближайшие матчи:\n"
             + "\n".join(lines)
-            + "\n\nНе забудь сделать прогноз с помощью /bet"
+            + "\n\nСделай свой прогноз с помощью /bet"
         )
         users = (await session.execute(select(User))).scalars().all()
         await notify_users(bot, users, text)
