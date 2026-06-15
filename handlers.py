@@ -176,10 +176,10 @@ async def rules_cmd(message: types.Message):
         "📜 **Правила начисления очков:**\n\n"
         "Очки суммируются за каждое попадание:\n"
         "✅ **Исход матча** (Победа/Ничья/Поражение): **+2 балла**\n"
-        "✅ **Точный счет хозяев**: **+1 балл**\n"
-        "✅ **Точный счет гостей**: **+1 балл**\n"
-        "✅ **Точная разница мячей**: **+1 балл**\n"
-        "✅ **Точное общее количество голов**: **+1 балл**\n\n"
+        "✅ **Счет хозяев**: **+1 балл**\n"
+        "✅ **Счет гостей**: **+1 балл**\n"
+        "✅ **Разница мячей**: **+1 балл**\n"
+        "✅ **Общее количество голов**: **+1 балл**\n\n"
         "*Максимально за один матч можно получить 6 баллов (при точном угадывании счета).*"
     )
     await message.answer(rules_text, parse_mode="Markdown")
@@ -477,16 +477,27 @@ async def leaderboard(message: types.Message):
         table_lines.append(" #  Игрок                Очки")
         table_lines.append("─── ──────────────────── ────")
 
-        for idx, row in enumerate(rankings, 1):
+        rank = 1
+        prev_total = None
+        for position, row in enumerate(rankings, 1):
+            # Compute tie-aware rank: same points → same rank
+            if row.total != prev_total:
+                rank = position
+            prev_total = row.total
+
+            if row.id == message.from_user.id:
+                user_rank = rank
+                user_points = row.total
+
             # 1. Rank column (3 cells wide)
-            if idx == 1:
+            if rank == 1:
                 rank_str = "🥇"  # Emoji(2) + Space(1) = 3 cells
-            elif idx == 2:
+            elif rank == 2:
                 rank_str = "🥈"
-            elif idx == 3:
+            elif rank == 3:
                 rank_str = "🥉"
             else:
-                rank_str = f" {idx:<2}"  # Space(1) + Number(2) = 3 cells
+                rank_str = f" {rank:<2}"  # Space(1) + Number(2) = 3 cells
 
             # 2. Player Name column (17 cells wide)
             name = row.display_name or (
@@ -494,13 +505,13 @@ async def leaderboard(message: types.Message):
             )
             if row.id == message.from_user.id:
                 name_display = f"➤ {name}"
-            elif idx in [1, 2, 3]:
+            elif rank in [1, 2, 3]:
                 name_display = f"  {name}"
             else:
                 name_display = f" {name}"
 
             # Truncate or pad name to exactly characters
-            chars = 20 if idx in [1, 2, 3] else 19
+            chars = 20 if rank in [1, 2, 3] else 19
 
             if len(name_display) > chars:
                 name_display = name_display[: (chars - 3)] + "..."
