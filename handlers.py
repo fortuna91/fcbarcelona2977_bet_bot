@@ -683,6 +683,8 @@ async def forcechange_score_input(message: types.Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("confirm_forcechange:"))
 async def confirm_forcechange(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        return await callback.answer("🚫 Только для администратора.", show_alert=True)
     parts = callback.data.split(":")
     match_id = int(parts[1])
     new_h = int(parts[2])
@@ -728,8 +730,8 @@ async def confirm_forcechange(callback: CallbackQuery):
             logger.warning(f"Failed to notify user {user_id} about score correction: {e}")
 
     logger.info(
-        f"Admin forced score change for match {match_id}: {old_h}:{old_g} → {new_h}:{new_g}. "
-        f"{len(user_updates)} bets recalculated."
+        f"Admin {callback.from_user.id} forced score change for match {match_id}: "
+        f"{old_h}:{old_g} → {new_h}:{new_g}. {len(user_updates)} bets recalculated."
     )
 
     await callback.message.edit_text(
@@ -742,5 +744,7 @@ async def confirm_forcechange(callback: CallbackQuery):
 
 @router.callback_query(F.data == "cancel_forcechange")
 async def cancel_forcechange(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        return await callback.answer("🚫 Только для администратора.", show_alert=True)
     await callback.message.edit_text("Отменено.", reply_markup=None)
     await callback.answer()
