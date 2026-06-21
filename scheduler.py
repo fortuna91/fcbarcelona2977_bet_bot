@@ -6,7 +6,7 @@ from aiogram import Bot
 from football_api import FootballAPI
 from flags import flagged
 from models import Match, User, Bet
-from points_calculator import calculate_points
+from points_calculator import calculate_points_breakdown
 from database import AsyncSessionLocal
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import db_utils
@@ -117,10 +117,13 @@ async def check_results_and_notify(bot: Bot, match_id: int):
                 f"Calculating points for {len(bets)} bets on match {match_obj.id}."
             )
 
+            bet_breakdowns: dict[int, list[str]] = {}
             for bet in bets:
-                bet.points_earned = calculate_points(
+                pts, breakdown = calculate_points_breakdown(
                     bet.bet_home_score, bet.bet_guest_score, ah, ag
                 )
+                bet.points_earned = pts
+                bet_breakdowns[bet.id] = breakdown
 
             await session.flush()
             comp = match_obj.competition
@@ -143,10 +146,19 @@ async def check_results_and_notify(bot: Bot, match_id: int):
                 )
                 rank = len((await session.execute(rank_stmt)).all()) + 1
 
+                breakdown = bet_breakdowns[bet.id]
+                breakdown_str = (
+                    "(" + ", ".join(breakdown) + ")" if breakdown else "(нет очков)"
+                )
                 try:
                     await bot.send_message(
                         bet.user_id,
-                        f"🏁 Матч окончен!\n{match_obj.title}: {ah}-{ag}\nОчки: +{bet.points_earned}\nВсего: {total}\nМесто в рейтинге: #{rank}",
+                        f"🏁 Матч окончен!\n"
+                        f"{match_obj.title}: {ah}-{ag}\n"
+                        f"Твоя ставка: {bet.bet_home_score}:{bet.bet_guest_score}\n"
+                        f"Очки: +{bet.points_earned} {breakdown_str}\n"
+                        f"Всего: {total}\n"
+                        f"Место в рейтинге: #{rank}",
                     )
                 except Exception as e:
                     logger.warning(
