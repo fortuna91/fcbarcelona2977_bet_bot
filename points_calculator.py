@@ -25,7 +25,7 @@ def calculate_points_breakdown(
 
     if (bet_h + bet_g) == (actual_h + actual_g):
         points += 1
-        earned.append("+1 за общий счёт")
+        earned.append("+1 за общее количество голов")
 
     return points, earned
 
