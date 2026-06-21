@@ -35,6 +35,12 @@ def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
 
+if not ADMIN_IDS:
+    logging.getLogger(__name__).warning(
+        "ADMIN_IDS env var is not set — admin commands are disabled for all users."
+    )
+
+
 # Flexible regex for scores: 2:1, 2 1, 2 : 1, 2-1, etc.
 SCORE_REGEX = r"(\d+)\s*[:\-\s]\s*(\d+)"
 
@@ -628,7 +634,7 @@ async def forcechange_cmd(message: types.Message):
 @router.callback_query(F.data.startswith("forcechange_pick:"))
 async def forcechange_pick(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id):
-        return await callback.answer("🚫 Только для администратора.")
+        return await callback.answer("🚫 Только для администратора.", show_alert=True)
     match_id = int(callback.data.split(":")[1])
 
     async with AsyncSessionLocal() as session:
@@ -743,8 +749,9 @@ async def confirm_forcechange(callback: CallbackQuery):
 
 
 @router.callback_query(F.data == "cancel_forcechange")
-async def cancel_forcechange(callback: CallbackQuery):
+async def cancel_forcechange(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id):
         return await callback.answer("🚫 Только для администратора.", show_alert=True)
+    await state.clear()
     await callback.message.edit_text("Отменено.", reply_markup=None)
     await callback.answer()
