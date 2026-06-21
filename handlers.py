@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 from models import User, Match, Bet
 from database import AsyncSessionLocal
 from scheduler import sync_matches
+from points_calculator import calculate_points
 import db_utils
 
 
@@ -647,4 +648,99 @@ async def forcechange_pick(callback: CallbackQuery, state: FSMContext):
         reply_markup=None,
         parse_mode="Markdown",
     )
+    await callback.answer()
+
+
+@router.message(ForceChangeStates.waiting_for_score)
+async def forcechange_score_input(message: types.Message, state: FSMContext):
+    score = parse_score(message.text)
+    if not score:
+        return await message.answer(
+            "❌ Неверный формат. Введи счёт в формате `2:1` или `2 1`.",
+            parse_mode="Markdown",
+        )
+
+    new_h, new_g = score
+    data = await state.get_data()
+    match_id = data["match_id"]
+
+    async with AsyncSessionLocal() as session:
+        match_obj = await session.get(Match, match_id)
+
+    if not match_obj:
+        await state.clear()
+        return await message.answer("Матч не найден.")
+
+    await state.clear()
+    kb = get_forcechange_confirm_keyboard(match_id, new_h, new_g)
+    await message.answer(
+        f"Изменить счёт матча **{match_obj.title}**?\n"
+        f"Текущий: `{match_obj.actual_home_score}:{match_obj.actual_guest_score}` → Новый: `{new_h}:{new_g}`",
+        reply_markup=kb,
+        parse_mode="Markdown",
+    )
+
+
+@router.callback_query(F.data.startswith("confirm_forcechange:"))
+async def confirm_forcechange(callback: CallbackQuery):
+    parts = callback.data.split(":")
+    match_id = int(parts[1])
+    new_h = int(parts[2])
+    new_g = int(parts[3])
+
+    async with AsyncSessionLocal() as session:
+        match_obj = await session.get(Match, match_id)
+        if not match_obj:
+            await callback.message.edit_text("Матч не найден.", reply_markup=None)
+            return await callback.answer()
+
+        old_h = match_obj.actual_home_score
+        old_g = match_obj.actual_guest_score
+
+        stmt_bets = select(Bet).where(Bet.match_id == match_id)
+        bets = (await session.execute(stmt_bets)).scalars().all()
+
+        user_updates = []
+        for bet in bets:
+            old_pts = bet.points_earned
+            new_pts = calculate_points(
+                bet.bet_home_score, bet.bet_guest_score, new_h, new_g
+            )
+            bet.points_earned = new_pts
+            user_updates.append(
+                (bet.user_id, bet.bet_home_score, bet.bet_guest_score, old_pts, new_pts)
+            )
+
+        match_obj.actual_home_score = new_h
+        match_obj.actual_guest_score = new_g
+        await session.commit()
+
+    for user_id, bet_h, bet_g, old_pts, new_pts in user_updates:
+        try:
+            await callback.bot.send_message(
+                user_id,
+                f"⚠️ Счёт матча {match_obj.title} был исправлен!\n\n"
+                f"Старый счёт: {old_h}:{old_g} → Новый счёт: {new_h}:{new_g}\n"
+                f"Твой прогноз: {bet_h}:{bet_g}\n\n"
+                f"Очки за матч: {old_pts} → {new_pts}",
+            )
+        except Exception as e:
+            logger.warning(f"Failed to notify user {user_id} about score correction: {e}")
+
+    logger.info(
+        f"Admin forced score change for match {match_id}: {old_h}:{old_g} → {new_h}:{new_g}. "
+        f"{len(user_updates)} bets recalculated."
+    )
+
+    await callback.message.edit_text(
+        f"✅ Готово! Счёт матча {match_obj.title} изменён: {old_h}:{old_g} → {new_h}:{new_g}\n"
+        f"Пересчитаны очки для {len(user_updates)} участников.",
+        reply_markup=None,
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cancel_forcechange")
+async def cancel_forcechange(callback: CallbackQuery):
+    await callback.message.edit_text("Отменено.", reply_markup=None)
     await callback.answer()
