@@ -16,7 +16,7 @@ pytest tests/test_points.py       # run a single test file
 docker compose up --build         # run containerized
 ```
 
-`.env` is required (loaded via python-dotenv): `BOT_TOKEN`, `FOOTBALL_API_KEY`, `DATABASE_URL` (e.g. `sqlite+aiosqlite:///bot.db`), `ADMIN_ID`. Optional: `COMPETITION` (e.g. `WC`) — when set, the bot fetches that football-data.org competition's matches instead of FC Barcelona's; remove the line to revert to Barça.
+`.env` is required (loaded via python-dotenv): `BOT_TOKEN`, `FOOTBALL_API_KEY`, `DATABASE_URL` (e.g. `sqlite+aiosqlite:///bot.db`), `ADMIN_IDS` (comma-separated Telegram user IDs of admins, e.g. `123456,789012`). Optional: `COMPETITION` (e.g. `WC`) — when set, the bot fetches that football-data.org competition's matches instead of FC Barcelona's; remove the line to revert to Barça.
 
 Note on tests: `tests/test_points.py`, `tests/test_bet_logic.py`, `tests/test_bet_helpers.py`, and `tests/test_football_api.py` are real pytest unit tests (pure-logic, no DB). `tests/test_logic.py` is NOT a pytest test — it's a manual `asyncio.run` script that queries a live DB and will fail/error under pytest collection if no DB is configured.
 
@@ -25,7 +25,7 @@ Note on tests: `tests/test_points.py`, `tests/test_bet_logic.py`, `tests/test_be
 Three layers, all async:
 
 - **`main.py`** — entry point. Initializes DB (`init_db`), creates the aiogram `Bot`/`Dispatcher`, registers `handlers.router`, starts `setup_scheduler`, then `start_polling`. The startup `sync_matches()` call is commented out — fixtures are populated by the scheduler's 2 AM cron or lazily by `/games`.
-- **`handlers.py`** — all Telegram command handlers on a single `router`. Uses an FSM (`BettingStates.waiting_for_score`) so `/bet` works both with args (`/bet 2:1`) and as a two-step conversation. Bet changes go through an inline-keyboard confirmation callback.
+- **`handlers.py`** — all Telegram command handlers on a single `router`. Uses an FSM (`BettingStates.waiting_for_score`) so `/bet` works both with args (`/bet 2:1`) and as a two-step conversation. Bet changes go through an inline-keyboard confirmation callback. Admin-only `/forcechange` uses `ForceChangeStates.waiting_for_score` to correct a finished match score and recalculate all bets; admin access is controlled by `ADMIN_IDS` (set of ints parsed from the env var).
 - **`scheduler.py`** — APScheduler (`AsyncIOScheduler`, UTC) background jobs.
 
 Data access is split: `db_utils.py` holds reusable read queries; `database.py` owns the engine + `AsyncSessionLocal`; `models.py` defines `User`/`Match`/`Bet` (SQLAlchemy, cascade deletes). Schema is created via `Base.metadata.create_all` on startup — **there are no migrations**, so model changes won't alter existing tables.
