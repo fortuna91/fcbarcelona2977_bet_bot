@@ -757,7 +757,9 @@ async def confirm_forcechange(callback: CallbackQuery):
                 .having(func.sum(Bet.points_earned) > total)
             )
             rank = len((await session.execute(rank_stmt)).all()) + 1
-            enriched_updates.append((user_id, bet_h, bet_g, old_pts, new_pts, total, rank))
+            enriched_updates.append(
+                (user_id, bet_h, bet_g, old_pts, new_pts, total, rank)
+            )
 
     for user_id, bet_h, bet_g, old_pts, new_pts, total, rank in enriched_updates:
         try:
