@@ -131,12 +131,15 @@ def get_forcechange_match_keyboard(matches) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def get_forcechange_confirm_keyboard(match_id: int, h: int, g: int) -> InlineKeyboardMarkup:
+def get_forcechange_confirm_keyboard(
+    match_id: int, h: int, g: int
+) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="✅ Да", callback_data=f"confirm_forcechange:{match_id}:{h}:{g}"
+                    text="✅ Да",
+                    callback_data=f"confirm_forcechange:{match_id}:{h}:{g}",
                 ),
                 InlineKeyboardButton(text="❌ Нет", callback_data="cancel_forcechange"),
             ]
@@ -601,17 +604,26 @@ async def reset_scores(message: types.Message):
         )
         return await message.answer("🚫 Только для администратора.")
 
-    logger.warning(f"ADMIN {message.from_user.id} IS RESETTING ALL SCORES.")
+    competition = os.getenv("COMPETITION", "FCB")
+    logger.warning(
+        f"ADMIN {message.from_user.id} IS RESETTING ALL SCORES for competition={competition}."
+    )
     async with AsyncSessionLocal() as session:
-        await session.execute(delete(Bet))
+        await session.execute(
+            delete(Bet).where(
+                Bet.match_id.in_(select(Match.id).where(Match.competition == competition))
+            )
+        )
         await session.commit()
-        await message.answer("⚠️ Все очки пользователей сброшены.")
+        await message.answer(f"⚠️ Все очки пользователей за {competition} сброшены.")
 
 
 @router.message(Command("forcechange"))
 async def forcechange_cmd(message: types.Message):
     if not is_admin(message.from_user.id):
-        logger.warning(f"User {message.from_user.id} attempted /forcechange but is not an admin.")
+        logger.warning(
+            f"User {message.from_user.id} attempted /forcechange but is not an admin."
+        )
         return await message.answer("🚫 Только для администратора.")
 
     logger.info(f"Admin {message.from_user.id} called /forcechange.")
@@ -733,7 +745,9 @@ async def confirm_forcechange(callback: CallbackQuery):
                 f"Очки за матч: {old_pts} → {new_pts}",
             )
         except Exception as e:
-            logger.warning(f"Failed to notify user {user_id} about score correction: {e}")
+            logger.warning(
+                f"Failed to notify user {user_id} about score correction: {e}"
+            )
 
     logger.info(
         f"Admin {callback.from_user.id} forced score change for match {match_id}: "
