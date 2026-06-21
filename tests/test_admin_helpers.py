@@ -37,9 +37,16 @@ def test_forcechange_match_keyboard_label_and_callback():
 
 
 def test_forcechange_match_keyboard_multiple_matches():
-    matches = [MagicMock(id=i, start_time=datetime.datetime(2026, 6, i + 1, 18, 0),
-                         title=f"Match {i}", actual_home_score=i, actual_guest_score=0)
-               for i in range(1, 4)]
+    matches = [
+        MagicMock(
+            id=i,
+            start_time=datetime.datetime(2026, 6, i + 1, 18, 0),
+            title=f"Match {i}",
+            actual_home_score=i,
+            actual_guest_score=0,
+        )
+        for i in range(1, 4)
+    ]
     kb = get_forcechange_match_keyboard(matches)
     assert len(kb.inline_keyboard) == 3
 

@@ -611,7 +611,9 @@ async def reset_scores(message: types.Message):
     async with AsyncSessionLocal() as session:
         await session.execute(
             delete(Bet).where(
-                Bet.match_id.in_(select(Match.id).where(Match.competition == competition))
+                Bet.match_id.in_(
+                    select(Match.id).where(Match.competition == competition)
+                )
             )
         )
         await session.commit()
