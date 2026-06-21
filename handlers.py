@@ -604,8 +604,10 @@ async def reset_scores(message: types.Message):
 @router.message(Command("forcechange"))
 async def forcechange_cmd(message: types.Message):
     if not is_admin(message.from_user.id):
+        logger.warning(f"User {message.from_user.id} attempted /forcechange but is not an admin.")
         return await message.answer("🚫 Только для администратора.")
 
+    logger.info(f"Admin {message.from_user.id} called /forcechange.")
     async with AsyncSessionLocal() as session:
         stmt = (
             select(Match)
@@ -624,6 +626,8 @@ async def forcechange_cmd(message: types.Message):
 
 @router.callback_query(F.data.startswith("forcechange_pick:"))
 async def forcechange_pick(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        return await callback.answer("🚫 Только для администратора.")
     match_id = int(callback.data.split(":")[1])
 
     async with AsyncSessionLocal() as session:
