@@ -599,3 +599,48 @@ async def reset_scores(message: types.Message):
         await session.execute(delete(Bet))
         await session.commit()
         await message.answer("⚠️ Все очки пользователей сброшены.")
+
+
+@router.message(Command("forcechange"))
+async def forcechange_cmd(message: types.Message):
+    if not is_admin(message.from_user.id):
+        return await message.answer("🚫 Только для администратора.")
+
+    async with AsyncSessionLocal() as session:
+        stmt = (
+            select(Match)
+            .where(Match.status == "FT")
+            .order_by(Match.start_time.desc())
+            .limit(5)
+        )
+        matches = (await session.execute(stmt)).scalars().all()
+
+    if not matches:
+        return await message.answer("Нет завершённых матчей.")
+
+    kb = get_forcechange_match_keyboard(matches)
+    await message.answer("Выбери матч для исправления счёта:", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("forcechange_pick:"))
+async def forcechange_pick(callback: CallbackQuery, state: FSMContext):
+    match_id = int(callback.data.split(":")[1])
+
+    async with AsyncSessionLocal() as session:
+        match_obj = await session.get(Match, match_id)
+
+    if not match_obj:
+        await callback.message.edit_text("Матч не найден.", reply_markup=None)
+        return await callback.answer()
+
+    await state.set_state(ForceChangeStates.waiting_for_score)
+    await state.update_data(match_id=match_id)
+
+    await callback.message.edit_text(
+        f"Матч: **{match_obj.title}**\n"
+        f"Текущий счёт: `{match_obj.actual_home_score}:{match_obj.actual_guest_score}`\n\n"
+        f"Введи правильный счёт:",
+        reply_markup=None,
+        parse_mode="Markdown",
+    )
+    await callback.answer()
