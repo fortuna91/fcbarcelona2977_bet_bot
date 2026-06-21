@@ -21,6 +21,10 @@ class BettingStates(StatesGroup):
     waiting_for_score = State()
 
 
+class ForceChangeStates(StatesGroup):
+    waiting_for_score = State()
+
+
 router = Router()
 ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()}
 logger = logging.getLogger(__name__)
@@ -104,6 +108,33 @@ def get_match_choice_keyboard(matches):
         for m in matches
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def get_forcechange_match_keyboard(matches) -> InlineKeyboardMarkup:
+    rows = []
+    for m in matches:
+        dt = m.start_time
+        if dt.tzinfo is None:
+            dt = pytz.utc.localize(dt)
+        day = dt.astimezone(MSK_TZ).strftime("%d.%m")
+        label = f"{day} {m.title} {m.actual_home_score}:{m.actual_guest_score}"
+        rows.append(
+            [InlineKeyboardButton(text=label, callback_data=f"forcechange_pick:{m.id}")]
+        )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def get_forcechange_confirm_keyboard(match_id: int, h: int, g: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Да", callback_data=f"confirm_forcechange:{match_id}:{h}:{g}"
+                ),
+                InlineKeyboardButton(text="❌ Нет", callback_data="cancel_forcechange"),
+            ]
+        ]
+    )
 
 
 def format_match_list(matches):
