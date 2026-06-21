@@ -737,14 +737,38 @@ async def confirm_forcechange(callback: CallbackQuery):
         match_obj.actual_guest_score = new_g
         await session.commit()
 
-    for user_id, bet_h, bet_g, old_pts, new_pts in user_updates:
+        comp = match_obj.competition
+        enriched_updates = []
+        for user_id, bet_h, bet_g, old_pts, new_pts in user_updates:
+            total_stmt = (
+                select(func.sum(Bet.points_earned))
+                .join(Match, Bet.match_id == Match.id)
+                .where(Bet.user_id == user_id, Match.competition == comp)
+            )
+            total = (await session.execute(total_stmt)).scalar() or 0
+
+            rank_stmt = (
+                select(func.count(User.id))
+                .select_from(User)
+                .join(Bet)
+                .join(Match, Bet.match_id == Match.id)
+                .where(Match.competition == comp)
+                .group_by(User.id)
+                .having(func.sum(Bet.points_earned) > total)
+            )
+            rank = len((await session.execute(rank_stmt)).all()) + 1
+            enriched_updates.append((user_id, bet_h, bet_g, old_pts, new_pts, total, rank))
+
+    for user_id, bet_h, bet_g, old_pts, new_pts, total, rank in enriched_updates:
         try:
             await callback.bot.send_message(
                 user_id,
                 f"⚠️ Счёт матча {match_obj.title} был исправлен!\n\n"
                 f"Старый счёт: {old_h}:{old_g} → Новый счёт: {new_h}:{new_g}\n"
                 f"Твой прогноз: {bet_h}:{bet_g}\n\n"
-                f"Очки за матч: {old_pts} → {new_pts}",
+                f"Очки за матч: {old_pts} → {new_pts}\n"
+                f"Всего: {total}\n"
+                f"Место в рейтинге: #{rank}",
             )
         except Exception as e:
             logger.warning(
@@ -753,12 +777,12 @@ async def confirm_forcechange(callback: CallbackQuery):
 
     logger.info(
         f"Admin {callback.from_user.id} forced score change for match {match_id}: "
-        f"{old_h}:{old_g} → {new_h}:{new_g}. {len(user_updates)} bets recalculated."
+        f"{old_h}:{old_g} → {new_h}:{new_g}. {len(enriched_updates)} bets recalculated."
     )
 
     await callback.message.edit_text(
         f"✅ Готово! Счёт матча {match_obj.title} изменён: {old_h}:{old_g} → {new_h}:{new_g}\n"
-        f"Пересчитаны очки для {len(user_updates)} участников.",
+        f"Пересчитаны очки для {len(enriched_updates)} участников.",
         reply_markup=None,
     )
     await callback.answer()
