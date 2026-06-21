@@ -73,8 +73,9 @@ async def sync_matches():
                     match_obj.start_time = dt
                     match_obj.competition = competition
 
-                # If finished, update actual scores too
-                if status == "FT":
+                # Set scores only on first completion; skip if already awarded
+                # to avoid silently overwriting scores after points were calculated.
+                if status == "FT" and match_obj.actual_home_score is None:
                     match_obj.actual_home_score = item["score"]["fullTime"]["home"]
                     match_obj.actual_guest_score = item["score"]["fullTime"]["away"]
 
