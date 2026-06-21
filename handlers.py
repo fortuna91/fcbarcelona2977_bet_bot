@@ -22,8 +22,12 @@ class BettingStates(StatesGroup):
 
 
 router = Router()
-ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
+ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()}
 logger = logging.getLogger(__name__)
+
+
+def is_admin(user_id: int) -> bool:
+    return user_id in ADMIN_IDS
 
 # Flexible regex for scores: 2:1, 2 1, 2 : 1, 2-1, etc.
 SCORE_REGEX = r"(\d+)\s*[:\-\s]\s*(\d+)"
@@ -552,7 +556,7 @@ async def delete_me(message: types.Message):
 
 @router.message(Command("reset_all_scores"))
 async def reset_scores(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
+    if not is_admin(message.from_user.id):
         logger.warning(
             f"User {message.from_user.id} attempted to reset all scores but is not an admin."
         )
