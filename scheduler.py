@@ -290,8 +290,12 @@ async def hourly_bet_reminder(bot: Bot, match_id: int):
         # Find users who haven't placed a bet for this match
         users = await db_utils.get_users_without_bet(session, match_obj.id)
 
+        now = datetime.datetime.utcnow()
         time_str = format_match_time_msk(match_obj.start_time)
-        msg = f"⏰ Последний шанс!\nВ {time_str} начинается матч {match_obj.title}.\nТы еще успеешь сделать ставку! Используй /bet прямо сейчас."
+        if now < BET_REOPEN_TIME:
+            msg = f"⏰ В {time_str} начинается матч {match_obj.title}."
+        else:
+            msg = f"⏰ Последний шанс!\nВ {time_str} начинается матч {match_obj.title}.\nТы еще успеешь сделать ставку! Используй /bet прямо сейчас."
         await notify_users(bot, users, msg)
 
 
