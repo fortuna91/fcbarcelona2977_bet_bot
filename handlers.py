@@ -16,6 +16,10 @@ from scheduler import sync_matches
 from points_calculator import calculate_points
 import db_utils
 
+# Playoff gate: no bets accepted until 24h before the first play-off match.
+PLAYOFF_START = datetime.datetime(2026, 6, 28, 19, 0, 0)  # UTC
+BET_REOPEN_TIME = PLAYOFF_START - datetime.timedelta(days=1)  # 2026-06-27 19:00:00 UTC
+
 
 # FSM States
 class BettingStates(StatesGroup):
@@ -257,8 +261,20 @@ async def place_bet(message: types.Message, command: CommandObject, state: FSMCo
     logger.info(f"User {message.from_user.id} called /bet with args: {command.args}")
     now = datetime.datetime.utcnow()
 
+    if now < BET_REOPEN_TIME:
+        msk = pytz.timezone("Europe/Moscow")
+        reopen_msk = BET_REOPEN_TIME.replace(tzinfo=pytz.utc).astimezone(msk)
+        reopen_str = reopen_msk.strftime("%d.%m в %H:%M МСК")
+        return await message.answer(
+            f"⏸ Приём прогнозов начнётся за день до начала плей-офф {reopen_str}."
+        )
+
+    min_start = PLAYOFF_START if now < PLAYOFF_START else None
+
     async with AsyncSessionLocal() as session:
-        open_matches = await db_utils.get_open_matches_today(session, now)
+        open_matches = await db_utils.get_open_matches_today(
+            session, now, min_start_time=min_start
+        )
         action = decide_bet_action(open_matches)
 
         if action == "none":

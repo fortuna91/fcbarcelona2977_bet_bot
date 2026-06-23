@@ -223,7 +223,7 @@ async def check_upcoming_jobs(bot: Bot):
     logger.info("Checking for upcoming/in-progress matches to re-schedule jobs...")
     async with AsyncSessionLocal() as session:
         # Find matches that are not yet finished
-        stmt = select(Match).where(Match.status == "NS")
+        stmt = select(Match).where(Match.status == "NS", Match.title != "None vs None")
         matches = (await session.execute(stmt)).scalars().all()
 
         for match_obj in matches:
@@ -243,7 +243,11 @@ async def daily_match_reminder(bot: Bot):
     async with AsyncSessionLocal() as session:
         stmt = (
             select(Match)
-            .where(Match.start_time >= window_start, Match.start_time < window_end)
+            .where(
+                Match.start_time >= window_start,
+                Match.start_time < window_end,
+                Match.title != "None vs None",
+            )
             .order_by(Match.start_time.asc())
         )
         matches = (await session.execute(stmt)).scalars().all()
