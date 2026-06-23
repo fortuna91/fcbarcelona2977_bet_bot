@@ -14,6 +14,9 @@ import db_utils
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler(timezone="UTC")
 
+PLAYOFF_START = datetime.datetime(2026, 6, 28, 19, 0, 0)  # UTC
+BET_REOPEN_TIME = PLAYOFF_START - datetime.timedelta(days=1)  # 2026-06-27 19:00:00 UTC
+
 MSK_TZ = pytz.timezone("Europe/Moscow")
 
 
@@ -264,11 +267,14 @@ async def daily_match_reminder(bot: Bot):
             lines.append(f"{time_str} — {match_obj.title}")
             await schedule_match_jobs(bot, match_obj)
 
-        text = (
-            "📅 Ближайшие матчи:\n"
-            + "\n".join(lines)
-            + "\n\nСделай свой прогноз с помощью /bet"
-        )
+        if now < BET_REOPEN_TIME:
+            bet_footer = (
+                "Когда начнётся плей-офф, ты сможешь сделать прогноз с помощью /bet"
+            )
+        else:
+            bet_footer = "Сделай свой прогноз с помощью /bet"
+
+        text = "📅 Ближайшие матчи:\n" + "\n".join(lines) + f"\n\n{bet_footer}"
         users = (await session.execute(select(User))).scalars().all()
         await notify_users(bot, users, text)
 
