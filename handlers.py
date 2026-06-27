@@ -532,66 +532,90 @@ async def leaderboard(message: types.Message):
                 "🏆 **Таблица лидеров пока пуста.**\nСделай первый прогноз! /bet"
             )
 
-        user_rank, user_points = 0, 0
+        total_users = len(rankings)
 
-        # Build the table lines
-        table_lines = []
-        table_lines.append(" #  Игрок                Очки")
-        table_lines.append("─── ──────────────────── ────")
-
+        # Pre-compute tie-aware ranks for all entries in one pass
+        computed_ranks = []
         rank = 1
         prev_total = None
         for position, row in enumerate(rankings, 1):
-            # Compute tie-aware rank: same points → same rank
             if row.total != prev_total:
                 rank = position
             prev_total = row.total
+            computed_ranks.append(rank)
 
-            if row.id == message.from_user.id:
-                user_rank = rank
-                user_points = row.total
+        # Find requesting user's index (0-based) in the sorted list
+        user_idx = next(
+            (i for i, row in enumerate(rankings) if row.id == message.from_user.id),
+            None,
+        )
+        user_rank = computed_ranks[user_idx] if user_idx is not None else 0
+        user_points = rankings[user_idx].total if user_idx is not None else 0
 
-            # 1. Rank column (3 cells wide)
-            if rank == 1:
-                rank_str = "🥇"  # Emoji(2) + Space(1) = 3 cells
-            elif rank == 2:
-                rank_str = "🥈"
-            elif rank == 3:
-                rank_str = "🥉"
+        # Decide which entries to show. Items are either an int (index into
+        # rankings) or None (sentinel → print "..." separator line).
+        if total_users <= 10:
+            display_items = list(range(total_users))
+        else:
+            last_idx = total_users - 1
+            top10 = list(range(10))
+            if user_idx is None or user_idx < 10:
+                # User is already visible in the top 10
+                display_items = top10 + [None, last_idx]
             else:
-                rank_str = f" {rank:<2}"  # Space(1) + Number(2) = 3 cells
+                display_items = top10 + [None, user_idx]
+                if user_idx != last_idx:
+                    display_items += [None, last_idx]
 
-            # 2. Player Name column (17 cells wide)
+        def format_row(idx: int) -> str:
+            row = rankings[idx]
+            r = computed_ranks[idx]
             name = row.display_name or (
                 f"@{row.username}" if row.username else f"User {row.id}"
             )
-            if row.id == message.from_user.id:
+            is_me = row.id == message.from_user.id
+
+            if r == 1:
+                rank_str = "🥇"
+            elif r == 2:
+                rank_str = "🥈"
+            elif r == 3:
+                rank_str = "🥉"
+            else:
+                rank_str = f" {r:<2}"
+
+            if is_me:
                 name_display = f"➤ {name}"
-            elif rank in [1, 2, 3]:
+                chars = 20
+            elif r in (1, 2, 3):
                 name_display = f"  {name}"
+                chars = 20
             else:
                 name_display = f" {name}"
-
-            # Truncate or pad name to exactly characters
-            chars = 20 if rank in [1, 2, 3] else 19
+                chars = 19
 
             if len(name_display) > chars:
-                name_display = name_display[: (chars - 3)] + "..."
+                name_display = name_display[: chars - 3] + "..."
             else:
                 name_display = name_display.ljust(chars)
 
-            # 3. Score column (3 cells wide)
-            score_str = str(row.total).rjust(3)
+            return f"{rank_str} {name_display} {str(row.total).rjust(3)}"
 
-            # Combine columns with single space separators
-            table_lines.append(f"{rank_str} {name_display} {score_str}")
+        table_lines = [
+            " #  Игрок                Очки",
+            "─── ──────────────────── ────",
+        ]
+        for item in display_items:
+            if item is None:
+                table_lines.append("         ...")
+            else:
+                table_lines.append(format_row(item))
 
         header = "🏆 **ТАБЛИЦА ЛИДЕРОВ** 🏆\n\n"
         footer = ""
         if user_rank:
             footer = f"\n\n🎖 Твоё место: **#{user_rank}** (**{user_points}** очк.)"
 
-        # Wrap the table in a code block for fixed-width alignment
         table_content = "\n".join(table_lines)
         response = f"{header}```\n{table_content}\n```\n{footer}"
 
