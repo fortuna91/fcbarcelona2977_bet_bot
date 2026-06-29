@@ -2,7 +2,7 @@ import datetime
 import pytz
 from sqlalchemy import select, func, desc
 from models import User, Match, Bet
-from flags import EMPTY_TITLES
+from flags import EMPTY_TITLES, TBD_TEAM
 
 MSK_TZ = pytz.timezone("Europe/Moscow")
 
@@ -61,7 +61,10 @@ async def get_open_matches(
         Match.start_time > cutoff,
         Match.start_time <= horizon_end,
         Match.status == "NS",
-        Match.title.not_in(EMPTY_TITLES),
+        # Both teams must be known — never offer a bet on an undecided opponent
+        # (the «Ожидается» placeholder, or a legacy "None" not yet re-synced).
+        Match.title.not_like(f"%{TBD_TEAM}%"),
+        Match.title.not_like("%None%"),
     ]
     if min_start_time:
         conditions.append(Match.start_time >= min_start_time)
