@@ -16,7 +16,7 @@ pytest tests/test_points.py       # run a single test file
 docker compose up --build         # run containerized
 ```
 
-`.env` is required (loaded via python-dotenv): `BOT_TOKEN`, `FOOTBALL_API_KEY`, `DATABASE_URL` (e.g. `sqlite+aiosqlite:///bot.db`), `ADMIN_IDS` (comma-separated Telegram user IDs of admins, e.g. `123456,789012`). Optional: `COMPETITION` (e.g. `WC`) — when set, the bot fetches that football-data.org competition's matches instead of FC Barcelona's; remove the line to revert to Barça.
+`.env` is required (loaded via python-dotenv): `BOT_TOKEN`, `FOOTBALL_API_KEY`, `DATABASE_URL` (e.g. `sqlite+aiosqlite:///bot.db`), `ADMIN_IDS` (comma-separated Telegram user IDs of admins, e.g. `123456,789012`). Optional: `COMPETITION` (e.g. `WC`) — when set, the bot fetches that football-data.org competition's matches instead of FC Barcelona's; remove the line to revert to Barça. Optional: `CHANNEL_ID` (a `@username` or numeric `-100…` id) — when set, `/bet` is gated behind subscription to that channel (the bot must be an **admin** of it); leave unset to open betting to everyone. Optional `CHANNEL_URL` overrides the "Подписаться" button link (needed for private channels; auto-derived from a `@username` otherwise).
 
 Note on tests: `tests/test_points.py`, `tests/test_bet_logic.py`, `tests/test_bet_helpers.py`, and `tests/test_football_api.py` are real pytest unit tests (pure-logic, no DB). `tests/test_logic.py` is NOT a pytest test — it's a manual `asyncio.run` script that queries a live DB and will fail/error under pytest collection if no DB is configured.
 

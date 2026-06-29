@@ -1,9 +1,13 @@
 import re
+import asyncio
 import datetime
 import os
 import logging
+from typing import Optional
+
 import pytz
-from aiogram import Router, F, types
+from aiogram import Router, F, types, Bot
+from aiogram.exceptions import TelegramRetryAfter, TelegramNetworkError
 from aiogram.filters import CommandStart, Command, CommandObject
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
@@ -42,6 +46,83 @@ def is_admin(user_id: int) -> bool:
 if not ADMIN_IDS:
     logging.getLogger(__name__).warning(
         "ADMIN_IDS env var is not set — admin commands are disabled for all users."
+    )
+
+
+# Channel-subscription gate for /bet. CHANNEL_ID may be a "@username" or a numeric
+# "-100..." id; the bot must be an admin of that channel to query membership.
+_raw_channel = os.getenv("CHANNEL_ID", "").strip()
+CHANNEL_ID = (
+    int(_raw_channel) if _raw_channel.lstrip("-").isdigit() else (_raw_channel or None)
+)
+CHANNEL_URL = os.getenv("CHANNEL_URL", "").strip() or (
+    f"https://t.me/{CHANNEL_ID[1:]}"
+    if isinstance(CHANNEL_ID, str) and CHANNEL_ID.startswith("@")
+    else None
+)
+
+if not CHANNEL_ID:
+    logging.getLogger(__name__).warning(
+        "CHANNEL_ID env var is not set — /bet is open to everyone (no subscription gate)."
+    )
+
+
+def is_member_status(status: str, is_member: bool = False) -> bool:
+    """Whether a Telegram chat-member status counts as 'subscribed'."""
+    if status in ("creator", "administrator", "member"):
+        return True
+    if status == "restricted":
+        return bool(is_member)
+    return False  # left, kicked
+
+
+# How many times to retry the membership lookup on transient (network / rate-limit)
+# errors, and the longest we'll wait on a single rate-limit hint (keeps /bet snappy).
+SUBSCRIPTION_CHECK_ATTEMPTS = 3
+SUBSCRIPTION_RETRY_CAP = 3.0  # seconds
+
+
+async def is_subscribed(bot: Bot, user_id: int) -> bool:
+    """True if the user is subscribed to the required channel.
+
+    Fails open when no channel is configured. Transient errors (network blips,
+    rate limits) are retried a few times; non-transient errors and exhausted
+    retries fail closed (a misconfigured/non-admin bot blocks betting rather than
+    silently allowing it).
+    """
+    if not CHANNEL_ID:
+        return True
+    for attempt in range(1, SUBSCRIPTION_CHECK_ATTEMPTS + 1):
+        try:
+            member = await bot.get_chat_member(CHANNEL_ID, user_id)
+            return is_member_status(member.status, getattr(member, "is_member", False))
+        except TelegramRetryAfter as e:
+            delay = min(e.retry_after, SUBSCRIPTION_RETRY_CAP)
+        except TelegramNetworkError:
+            delay = min(0.5 * attempt, SUBSCRIPTION_RETRY_CAP)
+        except Exception as e:
+            # Non-transient (bad chat id, bot not admin, etc.) — retrying won't help.
+            logger.warning(f"Channel membership check failed for user {user_id}: {e}")
+            return False
+        if attempt < SUBSCRIPTION_CHECK_ATTEMPTS:
+            logger.info(
+                f"Membership check for user {user_id} retrying "
+                f"(attempt {attempt}/{SUBSCRIPTION_CHECK_ATTEMPTS}) in {delay:.1f}s"
+            )
+            await asyncio.sleep(delay)
+    logger.warning(
+        f"Channel membership check for user {user_id} gave up after "
+        f"{SUBSCRIPTION_CHECK_ATTEMPTS} attempts (transient errors)."
+    )
+    return False
+
+
+def get_subscribe_keyboard() -> Optional[InlineKeyboardMarkup]:
+    """Inline 'subscribe' button linking to the channel, when a URL is known."""
+    if not CHANNEL_URL:
+        return None
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="📢 Подписаться", url=CHANNEL_URL)]]
     )
 
 
@@ -257,8 +338,18 @@ async def games_cmd(message: types.Message):
 
 
 @router.message(Command("bet"))
-async def place_bet(message: types.Message, command: CommandObject, state: FSMContext):
+async def place_bet(
+    message: types.Message, command: CommandObject, state: FSMContext, bot: Bot
+):
     logger.info(f"User {message.from_user.id} called /bet with args: {command.args}")
+
+    if not await is_subscribed(bot, message.from_user.id):
+        return await message.answer(
+            "❌ Чтобы делать прогнозы, подпишись на наш канал, "
+            "а затем снова отправь /bet.",
+            reply_markup=get_subscribe_keyboard(),
+        )
+
     now = datetime.datetime.utcnow()
 
     if now < BET_REOPEN_TIME:

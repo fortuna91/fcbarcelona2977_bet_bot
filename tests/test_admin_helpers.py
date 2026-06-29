@@ -63,3 +63,19 @@ def test_forcechange_confirm_keyboard_no_callback():
     no_btn = kb.inline_keyboard[0][1]
     assert no_btn.callback_data == "cancel_forcechange"
     assert "Нет" in no_btn.text
+
+
+def test_is_member_status_subscribed_states():
+    assert handlers.is_member_status("creator") is True
+    assert handlers.is_member_status("administrator") is True
+    assert handlers.is_member_status("member") is True
+
+
+def test_is_member_status_not_subscribed_states():
+    assert handlers.is_member_status("left") is False
+    assert handlers.is_member_status("kicked") is False
+
+
+def test_is_member_status_restricted_depends_on_is_member():
+    assert handlers.is_member_status("restricted", is_member=True) is True
+    assert handlers.is_member_status("restricted", is_member=False) is False
