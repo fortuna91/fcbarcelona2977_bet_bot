@@ -6,6 +6,10 @@ from flags import EMPTY_TITLES
 
 MSK_TZ = pytz.timezone("Europe/Moscow")
 
+# A match is open for betting starting this long before kickoff. 24h means a match
+# can always be predicted the previous evening — including 4am МСК (USA) games.
+BETTING_HORIZON = datetime.timedelta(hours=24)
+
 
 async def get_user(session, user_id):
     """Fetches a user by ID."""
@@ -38,44 +42,30 @@ async def get_matches_on_day(session, day: datetime.date):
     return (await session.execute(stmt)).scalars().all()
 
 
-async def get_open_matches_today(
+async def get_open_matches(
     session,
     now: datetime.datetime = None,
     min_start_time: datetime.datetime = None,
 ):
-    """Fetches matches on the current Moscow calendar day that are still open for betting.
+    """Fetches matches open for betting: kicking off within the next BETTING_HORIZON.
 
-    The betting day is the Moscow-time calendar day (matches are displayed in МСК),
-    running from 00:00 МСК to 00:00 МСК the next day.
+    A match is bettable from 24h before kickoff until 5 minutes before it, so an
+    early-morning (e.g. 4am МСК) match can still be predicted the previous evening.
     min_start_time: when set, only matches at or after this time are returned (e.g. play-off gate).
     """
     if now is None:
         now = datetime.datetime.utcnow()
     cutoff = now + datetime.timedelta(minutes=5)
-    # Betting day = Moscow calendar day. start_time is naive UTC, so resolve the
-    # MSK midnight bounds and convert them back to naive UTC for comparison.
-    now_msk = pytz.utc.localize(now).astimezone(MSK_TZ)
-    msk_midnight = now_msk.replace(hour=0, minute=0, second=0, microsecond=0)
-    window_start = msk_midnight.astimezone(pytz.utc).replace(tzinfo=None)
-    window_end = (
-        (msk_midnight + datetime.timedelta(days=1))
-        .astimezone(pytz.utc)
-        .replace(tzinfo=None)
-    )
-    effective_start = (
-        max(window_start, min_start_time) if min_start_time else window_start
-    )
-    stmt = (
-        select(Match)
-        .where(
-            Match.start_time >= effective_start,
-            Match.start_time < window_end,
-            Match.status == "NS",
-            Match.start_time > cutoff,
-            Match.title.not_in(EMPTY_TITLES),
-        )
-        .order_by(Match.start_time.asc())
-    )
+    horizon_end = now + BETTING_HORIZON
+    conditions = [
+        Match.start_time > cutoff,
+        Match.start_time <= horizon_end,
+        Match.status == "NS",
+        Match.title.not_in(EMPTY_TITLES),
+    ]
+    if min_start_time:
+        conditions.append(Match.start_time >= min_start_time)
+    stmt = select(Match).where(*conditions).order_by(Match.start_time.asc())
     return (await session.execute(stmt)).scalars().all()
 
 

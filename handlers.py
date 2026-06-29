@@ -272,14 +272,14 @@ async def place_bet(message: types.Message, command: CommandObject, state: FSMCo
     min_start = PLAYOFF_START if now < PLAYOFF_START else None
 
     async with AsyncSessionLocal() as session:
-        open_matches = await db_utils.get_open_matches_today(
+        open_matches = await db_utils.get_open_matches(
             session, now, min_start_time=min_start
         )
         action = decide_bet_action(open_matches)
 
         if action == "none":
             next_game = await db_utils.get_next_match(session, now)
-            msg = "❌ Сегодня нет матчей. Прогнозы принимаются только в дни матчей!"
+            msg = "❌ Пока нет матчей для прогноза. Прогнозы открываются за 24 часа до начала игры."
             if next_game:
                 date_str = format_match_time_msk(next_game.start_time)
                 msg += f"\n\n📅 Следующая игра:\n**{next_game.title}**\n⏰ {date_str}"
