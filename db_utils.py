@@ -1,6 +1,10 @@
 import datetime
+import pytz
 from sqlalchemy import select, func, desc
 from models import User, Match, Bet
+from flags import EMPTY_TITLES
+
+MSK_TZ = pytz.timezone("Europe/Moscow")
 
 
 async def get_user(session, user_id):
@@ -15,7 +19,9 @@ async def get_next_match(session, now: datetime.datetime = None):
     stmt = (
         select(Match)
         .where(
-            Match.status == "NS", Match.start_time > now, Match.title != "None vs None"
+            Match.status == "NS",
+            Match.start_time > now,
+            Match.title.not_in(EMPTY_TITLES),
         )
         .order_by(Match.start_time.asc())
     )
@@ -37,19 +43,25 @@ async def get_open_matches_today(
     now: datetime.datetime = None,
     min_start_time: datetime.datetime = None,
 ):
-    """Fetches matches in the current 06:00–06:00 UTC window that are still open for betting.
+    """Fetches matches on the current Moscow calendar day that are still open for betting.
 
+    The betting day is the Moscow-time calendar day (matches are displayed in МСК),
+    running from 00:00 МСК to 00:00 МСК the next day.
     min_start_time: when set, only matches at or after this time are returned (e.g. play-off gate).
     """
     if now is None:
         now = datetime.datetime.utcnow()
     cutoff = now + datetime.timedelta(minutes=5)
-    # Rolling 06:00→06:00 UTC window: before today's 06:00 we're still in yesterday's window.
-    today_6am = now.replace(hour=6, minute=0, second=0, microsecond=0)
-    window_start = (
-        today_6am if now >= today_6am else today_6am - datetime.timedelta(days=1)
+    # Betting day = Moscow calendar day. start_time is naive UTC, so resolve the
+    # MSK midnight bounds and convert them back to naive UTC for comparison.
+    now_msk = pytz.utc.localize(now).astimezone(MSK_TZ)
+    msk_midnight = now_msk.replace(hour=0, minute=0, second=0, microsecond=0)
+    window_start = msk_midnight.astimezone(pytz.utc).replace(tzinfo=None)
+    window_end = (
+        (msk_midnight + datetime.timedelta(days=1))
+        .astimezone(pytz.utc)
+        .replace(tzinfo=None)
     )
-    window_end = window_start + datetime.timedelta(days=1)
     effective_start = (
         max(window_start, min_start_time) if min_start_time else window_start
     )
@@ -60,7 +72,7 @@ async def get_open_matches_today(
             Match.start_time < window_end,
             Match.status == "NS",
             Match.start_time > cutoff,
-            Match.title != "None vs None",
+            Match.title.not_in(EMPTY_TITLES),
         )
         .order_by(Match.start_time.asc())
     )
@@ -73,7 +85,7 @@ async def get_upcoming_matches(session, limit=5, now: datetime.datetime = None):
         now = datetime.datetime.utcnow()
     stmt = (
         select(Match)
-        .where(Match.start_time > now, Match.title != "None vs None")
+        .where(Match.start_time > now, Match.title.not_in(EMPTY_TITLES))
         .order_by(Match.start_time.asc())
         .limit(limit)
     )

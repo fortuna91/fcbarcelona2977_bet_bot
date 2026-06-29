@@ -4,7 +4,7 @@ import pytz
 from sqlalchemy import select, func
 from aiogram import Bot
 from football_api import FootballAPI
-from flags import flagged
+from flags import flagged, TBD_TEAM, EMPTY_TITLES
 from models import Match, User, Bet
 from points_calculator import calculate_points_breakdown
 from database import AsyncSessionLocal
@@ -50,8 +50,18 @@ async def sync_matches():
                 dt_str = item["utcDate"].replace("Z", "+00:00")
                 dt = datetime.datetime.fromisoformat(dt_str).replace(tzinfo=None)
 
-                home_name = item["homeTeam"]["shortName"] or item["homeTeam"]["name"]
-                away_name = item["awayTeam"]["shortName"] or item["awayTeam"]["name"]
+                # Knockout opponents are null in the source until the prior match
+                # finishes; show a placeholder instead of the literal "None".
+                home_name = (
+                    item["homeTeam"]["shortName"]
+                    or item["homeTeam"]["name"]
+                    or TBD_TEAM
+                )
+                away_name = (
+                    item["awayTeam"]["shortName"]
+                    or item["awayTeam"]["name"]
+                    or TBD_TEAM
+                )
                 title = flagged(f"{home_name} vs {away_name}")
 
                 # football-data.org status: FINISHED, SCHEDULED, TIMED, IN_PLAY, PAUSED, POSTPONED, CANCELLED
@@ -175,6 +185,18 @@ async def check_results_and_notify(bot: Bot, match_id: int):
                 scheduler.remove_job(f"check_{match_id}")
             except:
                 pass
+
+            # A finished match may decide the next knockout pairing. Re-sync shortly
+            # after (not inline — the source needs a moment to advance the bracket)
+            # so the new opponent replaces the «Ожидается» placeholder without
+            # waiting for the next hourly sync.
+            scheduler.add_job(
+                sync_matches,
+                "date",
+                run_date=datetime.datetime.utcnow() + datetime.timedelta(minutes=10),
+                id=f"postsync_{match_id}",
+                replace_existing=True,
+            )
         else:
             logger.info(f"Match {match_id} is still in progress or not finished yet.")
 
@@ -226,7 +248,9 @@ async def check_upcoming_jobs(bot: Bot):
     logger.info("Checking for upcoming/in-progress matches to re-schedule jobs...")
     async with AsyncSessionLocal() as session:
         # Find matches that are not yet finished
-        stmt = select(Match).where(Match.status == "NS", Match.title != "None vs None")
+        stmt = select(Match).where(
+            Match.status == "NS", Match.title.not_in(EMPTY_TITLES)
+        )
         matches = (await session.execute(stmt)).scalars().all()
 
         for match_obj in matches:
@@ -249,7 +273,7 @@ async def daily_match_reminder(bot: Bot):
             .where(
                 Match.start_time >= window_start,
                 Match.start_time < window_end,
-                Match.title != "None vs None",
+                Match.title.not_in(EMPTY_TITLES),
             )
             .order_by(Match.start_time.asc())
         )
@@ -301,7 +325,9 @@ async def hourly_bet_reminder(bot: Bot, match_id: int):
 
 def setup_scheduler(bot: Bot):
     logger.info("Configuring scheduler jobs...")
-    scheduler.add_job(sync_matches, "cron", hour=2)
+    # Hourly during the tournament: knockout pairings change daily, so a once-a-day
+    # sync leaves a long gap between a match ending and its follow-up being shown.
+    scheduler.add_job(sync_matches, "cron", minute=0)
     scheduler.add_job(daily_match_reminder, "cron", hour=6, args=[bot])
 
     # Run sync and job check on startup

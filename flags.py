@@ -1,3 +1,11 @@
+# Placeholder for a team that isn't decided yet (e.g. a knockout opponent the
+# source API still reports as null). Kept here so sync and the DB filters agree.
+TBD_TEAM = "Ожидается"
+# Titles that mean "no real fixture yet" — filtered out of listings. Includes the
+# legacy "None vs None" so rows synced before this change stay hidden until re-synced.
+EMPTY_TITLES = ("None vs None", f"{TBD_TEAM} vs {TBD_TEAM}")
+
+
 def _f(code: str) -> str:
     """ISO 3166-1 alpha-2 → flag emoji."""
     return "".join(chr(0x1F1E6 + ord(c) - ord("A")) for c in code.upper())
